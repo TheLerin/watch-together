@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
 import { Play, Users, Sparkles, User } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useRoom } from '../context/RoomContext';

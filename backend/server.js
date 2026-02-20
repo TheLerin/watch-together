@@ -60,6 +60,89 @@ io.on('connection', (socket) => {
         socket.to(roomId).emit('receive_message', message);
     });
 
+    // --- ROLE MANAGEMENT ---
+
+    // Helper to get socket's current user object
+    const getUserInRoom = (sId, rId) => {
+        if (!rooms[rId]) return null;
+        return rooms[rId].find(u => u.id === sId);
+    };
+
+    socket.on('promote_to_moderator', ({ roomId, targetId }) => {
+        const sender = getUserInRoom(socket.id, roomId);
+        const target = getUserInRoom(targetId, roomId);
+
+        if (sender && target && sender.role === 'Host' && target.role === 'Viewer') {
+            target.role = 'Moderator';
+            io.to(roomId).emit('role_updated', { userId: targetId, newRole: 'Moderator' });
+            console.log(`Host ${socket.id} promoted ${targetId} to Moderator in ${roomId}`);
+        }
+    });
+
+    socket.on('demote_to_viewer', ({ roomId, targetId }) => {
+        const sender = getUserInRoom(socket.id, roomId);
+        const target = getUserInRoom(targetId, roomId);
+
+        if (sender && target && sender.role === 'Host' && target.role === 'Moderator') {
+            target.role = 'Viewer';
+            io.to(roomId).emit('role_updated', { userId: targetId, newRole: 'Viewer' });
+            console.log(`Host ${socket.id} demoted ${targetId} to Viewer in ${roomId}`);
+        }
+    });
+
+    socket.on('transfer_host', ({ roomId, targetId }) => {
+        const sender = getUserInRoom(socket.id, roomId);
+        const target = getUserInRoom(targetId, roomId);
+
+        if (sender && target && sender.role === 'Host') {
+            sender.role = 'Moderator'; // Host becomes Moderator upon transferring
+            target.role = 'Host';
+
+            // Broadcast the updates simultaneously 
+            io.to(roomId).emit('role_updated', { userId: socket.id, newRole: 'Moderator' });
+            io.to(roomId).emit('role_updated', { userId: targetId, newRole: 'Host' });
+
+            console.log(`${socket.id} transferred Host to ${targetId} in ${roomId}`);
+        }
+    });
+
+    socket.on('kick_user', ({ roomId, targetId }) => {
+        const sender = getUserInRoom(socket.id, roomId);
+        const target = getUserInRoom(targetId, roomId);
+
+        if (!sender || !target) return;
+
+        // Permissions:
+        // Host can kick anyone.
+        // Moderator can only kick Viewers.
+        const canKick = sender.role === 'Host' || (sender.role === 'Moderator' && target.role === 'Viewer');
+
+        if (canKick) {
+            // Tell the user they were kicked
+            io.to(targetId).emit('user_kicked');
+
+            // Forcibly remove them from the room memory
+            rooms[roomId] = rooms[roomId].filter(u => u.id !== targetId);
+            io.to(roomId).emit('user_left', targetId);
+
+            // Forcibly make their socket leave the room channel
+            const targetSocket = io.sockets.sockets.get(targetId);
+            if (targetSocket) {
+                targetSocket.leave(roomId);
+                targetSocket.roomId = null;
+            }
+
+            console.log(`${sender.id} (${sender.role}) kicked ${targetId} from ${roomId}`);
+
+            // Cleanup empty rooms
+            if (rooms[roomId].length === 0) {
+                delete rooms[roomId];
+            }
+        }
+    });
+
+    // --- DISCONNECT HANDLING ---
+
     const handleDisconnect = () => {
         const roomId = socket.roomId;
         if (roomId && rooms[roomId]) {

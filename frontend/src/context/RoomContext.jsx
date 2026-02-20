@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { socket } from '../socket';
 
 const RoomContext = createContext();
@@ -12,6 +12,7 @@ export const RoomProvider = ({ children }) => {
     const [users, setUsers] = useState([]); // List of all users in room
     const [messages, setMessages] = useState([]);
     const [roomId, setRoomId] = useState(null);
+    const isKicked = useRef(false);
 
     // Initialize Socket connection
     useEffect(() => {
@@ -36,6 +37,15 @@ export const RoomProvider = ({ children }) => {
         function onReceiveMessage(message) {
             setMessages(prev => [...prev, message]);
         }
+        function onRoleUpdated({ userId, newRole }) {
+            setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
+            setCurrentUser(prev => prev?.id === userId ? { ...prev, role: newRole } : prev);
+        }
+        function onUserKicked() {
+            isKicked.current = true;
+            alert("You have been kicked from the room by the Host.");
+            window.location.href = '/'; // Force redirect and cleanup
+        }
 
         socket.on('connect', onConnect);
         socket.on('disconnect', onDisconnect);
@@ -43,6 +53,8 @@ export const RoomProvider = ({ children }) => {
         socket.on('user_joined', onUserJoined);
         socket.on('user_left', onUserLeft);
         socket.on('receive_message', onReceiveMessage);
+        socket.on('role_updated', onRoleUpdated);
+        socket.on('user_kicked', onUserKicked);
 
         return () => {
             socket.off('connect', onConnect);
@@ -51,6 +63,8 @@ export const RoomProvider = ({ children }) => {
             socket.off('user_joined', onUserJoined);
             socket.off('user_left', onUserLeft);
             socket.off('receive_message', onReceiveMessage);
+            socket.off('role_updated', onRoleUpdated);
+            socket.off('user_kicked', onUserKicked);
         };
     }, []);
 
@@ -61,12 +75,15 @@ export const RoomProvider = ({ children }) => {
     }, []);
 
     const leaveRoom = useCallback(() => {
-        socket.emit('leave_room', { roomId });
+        if (!isKicked.current) {
+            socket.emit('leave_room', { roomId });
+        }
         socket.disconnect();
         setRoomId(null);
         setCurrentUser(null);
         setUsers([]);
         setMessages([]);
+        isKicked.current = false;
     }, [roomId]);
 
     const sendMessage = useCallback((text) => {
@@ -83,6 +100,23 @@ export const RoomProvider = ({ children }) => {
         socket.emit('send_message', { roomId, message: msg });
     }, [roomId, currentUser]);
 
+    // Role Management Helpers
+    const promoteUser = useCallback((targetId) => {
+        socket.emit('promote_to_moderator', { roomId, targetId });
+    }, [roomId]);
+
+    const demoteUser = useCallback((targetId) => {
+        socket.emit('demote_to_viewer', { roomId, targetId });
+    }, [roomId]);
+
+    const transferHost = useCallback((targetId) => {
+        socket.emit('transfer_host', { roomId, targetId });
+    }, [roomId]);
+
+    const kickUser = useCallback((targetId) => {
+        socket.emit('kick_user', { roomId, targetId });
+    }, [roomId]);
+
     return (
         <RoomContext.Provider value={{
             isConnected,
@@ -92,7 +126,11 @@ export const RoomProvider = ({ children }) => {
             roomId,
             joinRoom,
             leaveRoom,
-            sendMessage
+            sendMessage,
+            promoteUser,
+            demoteUser,
+            transferHost,
+            kickUser
         }}>
             {children}
         </RoomContext.Provider>
