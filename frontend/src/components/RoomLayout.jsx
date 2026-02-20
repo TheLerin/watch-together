@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { LogOut, Play, Settings, Share2, Menu, X } from 'lucide-react';
 import ChatUI from './ChatUI';
 import UserQueueSidebar from './UserQueueSidebar';
+import VideoPlayer from './VideoPlayer';
 import { useRoom } from '../context/RoomContext';
 
 const RoomLayout = () => {
@@ -81,19 +82,8 @@ const RoomLayout = () => {
             <main className="flex-1 flex overflow-hidden p-2 sm:p-4 gap-4 z-10 relative">
 
                 {/* Left: Video Player Area */}
-                <section className="flex-1 flex flex-col min-w-0 bg-zinc-900/30 backdrop-blur-sm border border-white/10 rounded-3xl overflow-hidden relative shadow-2xl">
-                    <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
-                        <div className="w-20 h-20 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-6 ring-4 ring-white/5 animate-pulse">
-                            <Play size={32} className="text-gray-400 ml-2" />
-                        </div>
-                        <h2 className="text-2xl font-semibold mb-2 text-gray-200">No Video Playing</h2>
-                        <p className="text-gray-400 max-w-sm mb-8">
-                            Add a video link from YouTube, Instagram, or choose a local file to start syncing with your friends.
-                        </p>
-                        <button className="px-6 py-3 bg-white/10 hover:bg-white/20 border border-white/10 rounded-xl font-medium transition-all duration-300">
-                            Add Video to Queue
-                        </button>
-                    </div>
+                <section className="flex-1 flex flex-col min-w-0 bg-zinc-900/30 backdrop-blur-sm border border-white/10 rounded-3xl overflow-hidden relative shadow-2xl p-2 sm:p-4">
+                    <VideoPlayer />
                 </section>
 
                 {/* Right: Sidebar / Chat (Desktop) */}

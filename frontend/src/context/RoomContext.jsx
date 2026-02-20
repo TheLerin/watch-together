@@ -12,6 +12,12 @@ export const RoomProvider = ({ children }) => {
     const [users, setUsers] = useState([]); // List of all users in room
     const [messages, setMessages] = useState([]);
     const [roomId, setRoomId] = useState(null);
+    const [videoState, setVideoState] = useState({
+        url: '',
+        isPlaying: false,
+        playedSeconds: 0,
+        updatedAt: Date.now()
+    });
     const isKicked = useRef(false);
 
     // Initialize Socket connection
@@ -23,9 +29,12 @@ export const RoomProvider = ({ children }) => {
             setIsConnected(false);
             setCurrentUser(null);
         }
-        function onRoomJoined({ user, existingUsers, chatHistory }) {
+        function onRoomJoined({ user, existingUsers, videoState: initialVideoState, chatHistory }) {
             setCurrentUser(user);
             setUsers(existingUsers);
+            if (initialVideoState) {
+                setVideoState(initialVideoState);
+            }
             setMessages(chatHistory || []);
         }
         function onUserJoined(newUser) {
@@ -47,6 +56,20 @@ export const RoomProvider = ({ children }) => {
             window.location.href = '/'; // Force redirect and cleanup
         }
 
+        // --- Video Event Listeners ---
+        function onVideoChanged(newState) {
+            setVideoState(newState);
+        }
+        function onVideoPlayed() {
+            setVideoState(prev => ({ ...prev, isPlaying: true, updatedAt: Date.now() }));
+        }
+        function onVideoPaused() {
+            setVideoState(prev => ({ ...prev, isPlaying: false, updatedAt: Date.now() }));
+        }
+        function onVideoSeeked(playedSeconds) {
+            setVideoState(prev => ({ ...prev, playedSeconds, updatedAt: Date.now() }));
+        }
+
         socket.on('connect', onConnect);
         socket.on('disconnect', onDisconnect);
         socket.on('room_joined', onRoomJoined);
@@ -55,6 +78,10 @@ export const RoomProvider = ({ children }) => {
         socket.on('receive_message', onReceiveMessage);
         socket.on('role_updated', onRoleUpdated);
         socket.on('user_kicked', onUserKicked);
+        socket.on('video_changed', onVideoChanged);
+        socket.on('video_played', onVideoPlayed);
+        socket.on('video_paused', onVideoPaused);
+        socket.on('video_seeked', onVideoSeeked);
 
         return () => {
             socket.off('connect', onConnect);
@@ -65,6 +92,10 @@ export const RoomProvider = ({ children }) => {
             socket.off('receive_message', onReceiveMessage);
             socket.off('role_updated', onRoleUpdated);
             socket.off('user_kicked', onUserKicked);
+            socket.off('video_changed', onVideoChanged);
+            socket.off('video_played', onVideoPlayed);
+            socket.off('video_paused', onVideoPaused);
+            socket.off('video_seeked', onVideoSeeked);
         };
     }, []);
 
@@ -117,6 +148,28 @@ export const RoomProvider = ({ children }) => {
         socket.emit('kick_user', { roomId, targetId });
     }, [roomId]);
 
+    // --- Video Sync Helpers ---
+    const loadVideo = useCallback((url) => {
+        if (!url || !url.trim()) return;
+        setVideoState(prev => ({ ...prev, url, isPlaying: false, playedSeconds: 0 }));
+        socket.emit('change_video', { roomId, url });
+    }, [roomId]);
+
+    const playVideo = useCallback(() => {
+        setVideoState(prev => ({ ...prev, isPlaying: true }));
+        socket.emit('play_video', { roomId });
+    }, [roomId]);
+
+    const pauseVideo = useCallback(() => {
+        setVideoState(prev => ({ ...prev, isPlaying: false }));
+        socket.emit('pause_video', { roomId });
+    }, [roomId]);
+
+    const seekVideo = useCallback((seconds) => {
+        setVideoState(prev => ({ ...prev, playedSeconds: seconds }));
+        socket.emit('seek_video', { roomId, playedSeconds: seconds });
+    }, [roomId]);
+
     return (
         <RoomContext.Provider value={{
             isConnected,
@@ -124,13 +177,18 @@ export const RoomProvider = ({ children }) => {
             users,
             messages,
             roomId,
+            videoState,
             joinRoom,
             leaveRoom,
             sendMessage,
             promoteUser,
             demoteUser,
             transferHost,
-            kickUser
+            kickUser,
+            loadVideo,
+            playVideo,
+            pauseVideo,
+            seekVideo
         }}>
             {children}
         </RoomContext.Provider>

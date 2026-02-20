@@ -16,7 +16,7 @@ const io = new Server(server, {
 });
 
 // Basic in-memory store for rooms
-// Structure: { roomId: [{ id: socket.id, nickname: string, role: string }] }
+// Structure: { roomId: { users: [{ id, nickname, role }], videoState: { url, isPlaying, playedSeconds, updatedAt } } }
 const rooms = {};
 
 app.get('/', (req, res) => {
@@ -30,14 +30,22 @@ io.on('connection', (socket) => {
         socket.join(roomId);
 
         if (!rooms[roomId]) {
-            rooms[roomId] = [];
+            rooms[roomId] = {
+                users: [],
+                videoState: {
+                    url: '',
+                    isPlaying: false,
+                    playedSeconds: 0,
+                    updatedAt: Date.now()
+                }
+            };
         }
 
         // First user is Host, subsequent are Viewers
-        const role = rooms[roomId].length === 0 ? 'Host' : 'Viewer';
+        const role = rooms[roomId].users.length === 0 ? 'Host' : 'Viewer';
         const user = { id: socket.id, nickname, role };
 
-        rooms[roomId].push(user);
+        rooms[roomId].users.push(user);
 
         // Track which room this socket is in
         socket.roomId = roomId;
@@ -47,7 +55,8 @@ io.on('connection', (socket) => {
         // Send current room state to the new user
         socket.emit('room_joined', {
             user,
-            existingUsers: rooms[roomId],
+            existingUsers: rooms[roomId].users,
+            videoState: rooms[roomId].videoState,
             chatHistory: [] // Will implement chat history storage later if needed
         });
 
@@ -64,8 +73,8 @@ io.on('connection', (socket) => {
 
     // Helper to get socket's current user object
     const getUserInRoom = (sId, rId) => {
-        if (!rooms[rId]) return null;
-        return rooms[rId].find(u => u.id === sId);
+        if (!rooms[rId] || !rooms[rId].users) return null;
+        return rooms[rId].users.find(u => u.id === sId);
     };
 
     socket.on('promote_to_moderator', ({ roomId, targetId }) => {
@@ -122,7 +131,9 @@ io.on('connection', (socket) => {
             io.to(targetId).emit('user_kicked');
 
             // Forcibly remove them from the room memory
-            rooms[roomId] = rooms[roomId].filter(u => u.id !== targetId);
+            if (rooms[roomId] && rooms[roomId].users) {
+                rooms[roomId].users = rooms[roomId].users.filter(u => u.id !== targetId);
+            }
             io.to(roomId).emit('user_left', targetId);
 
             // Forcibly make their socket leave the room channel
@@ -135,8 +146,56 @@ io.on('connection', (socket) => {
             console.log(`${sender.id} (${sender.role}) kicked ${targetId} from ${roomId}`);
 
             // Cleanup empty rooms
-            if (rooms[roomId].length === 0) {
+            if (rooms[roomId] && rooms[roomId].users.length === 0) {
                 delete rooms[roomId];
+            }
+        }
+    });
+
+    // --- VIDEO SYNC MANAGEMENT ---
+
+    socket.on('change_video', ({ roomId, url }) => {
+        const sender = getUserInRoom(socket.id, roomId);
+        if (sender && (sender.role === 'Host' || sender.role === 'Moderator')) {
+            if (rooms[roomId]) {
+                const newState = { url, isPlaying: false, playedSeconds: 0, updatedAt: Date.now() };
+                rooms[roomId].videoState = newState;
+                io.to(roomId).emit('video_changed', newState);
+                console.log(`Video changed in ${roomId} to ${url}`);
+            }
+        }
+    });
+
+    socket.on('play_video', ({ roomId }) => {
+        const sender = getUserInRoom(socket.id, roomId);
+        if (sender && (sender.role === 'Host' || sender.role === 'Moderator')) {
+            if (rooms[roomId] && !rooms[roomId].videoState.isPlaying) {
+                rooms[roomId].videoState.isPlaying = true;
+                rooms[roomId].videoState.updatedAt = Date.now();
+                // Broadcast play signal, exclude sender to prevent bounce back
+                socket.to(roomId).emit('video_played');
+            }
+        }
+    });
+
+    socket.on('pause_video', ({ roomId }) => {
+        const sender = getUserInRoom(socket.id, roomId);
+        if (sender && (sender.role === 'Host' || sender.role === 'Moderator')) {
+            if (rooms[roomId] && rooms[roomId].videoState.isPlaying) {
+                rooms[roomId].videoState.isPlaying = false;
+                rooms[roomId].videoState.updatedAt = Date.now();
+                socket.to(roomId).emit('video_paused');
+            }
+        }
+    });
+
+    socket.on('seek_video', ({ roomId, playedSeconds }) => {
+        const sender = getUserInRoom(socket.id, roomId);
+        if (sender && (sender.role === 'Host' || sender.role === 'Moderator')) {
+            if (rooms[roomId]) {
+                rooms[roomId].videoState.playedSeconds = playedSeconds;
+                rooms[roomId].videoState.updatedAt = Date.now();
+                socket.to(roomId).emit('video_seeked', playedSeconds);
             }
         }
     });
@@ -145,13 +204,13 @@ io.on('connection', (socket) => {
 
     const handleDisconnect = () => {
         const roomId = socket.roomId;
-        if (roomId && rooms[roomId]) {
-            rooms[roomId] = rooms[roomId].filter(u => u.id !== socket.id);
+        if (roomId && rooms[roomId] && rooms[roomId].users) {
+            rooms[roomId].users = rooms[roomId].users.filter(u => u.id !== socket.id);
             socket.to(roomId).emit('user_left', socket.id);
             console.log(`User ${socket.id} left room ${roomId}`);
 
             // Cleanup empty rooms
-            if (rooms[roomId].length === 0) {
+            if (rooms[roomId].users.length === 0) {
                 delete rooms[roomId];
             }
         }
