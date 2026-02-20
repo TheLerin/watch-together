@@ -1,9 +1,0 @@
-
-C:\CODES\Watch together\frontend\src\components\LandingPage.jsx
-  2:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
-
-C:\CODES\Watch together\frontend\src\components\RoomLayout.jsx
-  3:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
-
-??? 2 problems (2 errors, 0 warnings)
-
