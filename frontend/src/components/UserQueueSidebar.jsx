@@ -1,13 +1,9 @@
 import React from 'react';
 import { Users, Crown, Shield, Video, Plus } from 'lucide-react';
+import { useRoom } from '../context/RoomContext';
 
 const UserQueueSidebar = () => {
-    const users = [
-        { id: 1, name: 'Host_Alice', role: 'Host' },
-        { id: 2, name: 'Charlie', role: 'Moderator' },
-        { id: 3, name: 'Bob', role: 'Viewer' },
-        { id: 4, name: 'Dave', role: 'Viewer' },
-    ];
+    const { users } = useRoom();
 
     const queue = [
         { id: 1, title: 'Epic React Tutorial', duration: '12:04' },
@@ -22,12 +18,12 @@ const UserQueueSidebar = () => {
                     <h3 className="font-semibold text-gray-200 flex items-center gap-2">
                         <Users size={16} /> Users
                     </h3>
-                    <span className="text-xs text-gray-400 font-medium">4 Online</span>
+                    <span className="text-xs text-gray-400 font-medium">{users.length} Online</span>
                 </div>
                 <div className="flex-1 overflow-y-auto p-2 space-y-1">
                     {users.map(user => (
                         <div key={user.id} className="flex items-center justify-between p-2 hover:bg-white/5 rounded-lg transition-colors group cursor-default">
-                            <span className="text-sm font-medium text-gray-300">{user.name}</span>
+                            <span className="text-sm font-medium text-gray-300">{user.nickname}</span>
                             {user.role === 'Host' && <Crown size={14} className="text-purple-400" />}
                             {user.role === 'Moderator' && <Shield size={14} className="text-blue-400" />}
                         </div>

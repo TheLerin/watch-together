@@ -1,12 +1,16 @@
 import React from 'react';
 import { Send } from 'lucide-react';
+import { useRoom } from '../context/RoomContext';
 
 const ChatUI = () => {
-    const dummyMessages = [
-        { id: 1, user: 'Host_Alice', role: 'Host', text: 'Welcome to the room everyone!', time: '14:02' },
-        { id: 2, user: 'Bob', role: 'Viewer', text: 'Hey wait, who is queuing the next video?', time: '14:05' },
-        { id: 3, user: 'Charlie', role: 'Moderator', text: 'I am taking care of it.', time: '14:06' },
-    ];
+    const { messages, sendMessage } = useRoom();
+    const [inputValue, setInputValue] = React.useState('');
+
+    const handleSend = (e) => {
+        e.preventDefault();
+        sendMessage(inputValue);
+        setInputValue('');
+    };
 
     const getRoleColor = (role) => {
         switch (role) {
@@ -25,7 +29,7 @@ const ChatUI = () => {
 
             {/* Messages */}
             <div className="flex-1 p-4 overflow-y-auto space-y-4">
-                {dummyMessages.map(msg => (
+                {messages.map(msg => (
                     <div key={msg.id} className="text-sm">
                         <div className="flex items-end gap-2 mb-1">
                             <span className={`font-medium ${getRoleColor(msg.role)}`}>{msg.user}</span>
@@ -40,16 +44,18 @@ const ChatUI = () => {
 
             {/* Input Area */}
             <div className="p-4 bg-white/5 border-t border-white/10">
-                <div className="relative flex items-center">
+                <form onSubmit={handleSend} className="relative flex items-center">
                     <input
                         type="text"
+                        value={inputValue}
+                        onChange={(e) => setInputValue(e.target.value)}
                         placeholder="Type a message..."
                         className="w-full bg-black/50 border border-white/10 rounded-xl py-3 pl-4 pr-12 text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 transition-all"
                     />
-                    <button className="absolute right-2 p-2 text-gray-400 hover:text-white transition-colors">
+                    <button type="submit" className="absolute right-2 p-2 text-gray-400 hover:text-white transition-colors">
                         <Send size={18} />
                     </button>
-                </div>
+                </form>
             </div>
         </div>
     );

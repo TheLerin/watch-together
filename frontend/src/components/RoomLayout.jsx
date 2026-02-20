@@ -1,14 +1,29 @@
 import React, { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Navigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LogOut, Play, Settings, Share2, Menu, X } from 'lucide-react';
 import ChatUI from './ChatUI';
 import UserQueueSidebar from './UserQueueSidebar';
+import { useRoom } from '../context/RoomContext';
 
 const RoomLayout = () => {
     const { roomId } = useParams();
     const navigate = useNavigate();
+    const { isConnected, currentUser, joinRoom, leaveRoom } = useRoom();
     const [showSidebar, setShowSidebar] = useState(false);
+
+    // If user lands here directly without a nickname, redirect to home
+    if (!currentUser) {
+        return <Navigate to="/" replace />;
+    }
+
+    React.useEffect(() => {
+        // We handle the join room action from LandingPage before navigation usually.
+        // If we want direct link joins later, we'd handle it here prompting for a nickname.
+        return () => {
+            leaveRoom();
+        };
+    }, [leaveRoom]);
 
     return (
         <div className="h-screen w-full flex flex-col bg-background text-white overflow-hidden relative">
@@ -40,7 +55,10 @@ const RoomLayout = () => {
                         <Settings size={20} />
                     </button>
                     <button
-                        onClick={() => navigate('/')}
+                        onClick={() => {
+                            leaveRoom();
+                            navigate('/');
+                        }}
                         className="flex items-center gap-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 rounded-lg transition-all font-medium text-sm"
                     >
                         <LogOut size={16} />

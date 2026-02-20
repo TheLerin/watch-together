@@ -1,15 +1,32 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Play, Users, Sparkles } from 'lucide-react';
+import { Play, Users, Sparkles, User } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useRoom } from '../context/RoomContext';
 
 const LandingPage = () => {
     const navigate = useNavigate();
+    const { joinRoom } = useRoom();
+    const [nickname, setNickname] = useState('');
+    const [joinCode, setJoinCode] = useState('');
 
     const handleCreateRoom = () => {
-        // In future phases, this will hit backend or generate ID
+        if (!nickname.trim()) {
+            alert('Please enter a nickname first!');
+            return;
+        }
         const randomId = Math.random().toString(36).substring(2, 9);
+        joinRoom(randomId, nickname);
         navigate(`/room/${randomId}`);
+    };
+
+    const handleJoinRoom = () => {
+        if (!nickname.trim() || !joinCode.trim()) {
+            alert('Please enter both a nickname and a room code!');
+            return;
+        }
+        joinRoom(joinCode, nickname);
+        navigate(`/room/${joinCode}`);
     };
 
     return (
@@ -37,16 +54,44 @@ const LandingPage = () => {
                         Create a room, invite your friends, and enjoy synchronized playback of your favorite videos. Zero friction, pure luxury.
                     </p>
 
+                    <div className="flex flex-col gap-4 max-w-sm mx-auto lg:mx-0 mb-8">
+                        <div className="relative flex items-center">
+                            <User size={18} className="absolute left-4 text-gray-500" />
+                            <input
+                                type="text"
+                                placeholder="Enter your nickname..."
+                                value={nickname}
+                                onChange={(e) => setNickname(e.target.value)}
+                                className="w-full bg-black/50 border border-white/10 rounded-xl py-4 pl-12 pr-4 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 transition-all font-medium"
+                            />
+                        </div>
+                        <div className="relative flex items-center">
+                            <span className="absolute left-4 text-gray-500 font-mono">#</span>
+                            <input
+                                type="text"
+                                placeholder="Room code (optional)"
+                                value={joinCode}
+                                onChange={(e) => setJoinCode(e.target.value)}
+                                className="w-full bg-black/50 border border-white/10 rounded-xl py-4 pl-10 pr-4 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 transition-all font-medium uppercase"
+                            />
+                        </div>
+                    </div>
+
                     <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
                         <button
                             onClick={handleCreateRoom}
-                            className="group relative px-8 py-4 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl font-medium transition-all duration-300 overflow-hidden flex items-center justify-center gap-2"
+                            disabled={!nickname.trim()}
+                            className="group relative px-8 py-4 bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed border border-white/20 rounded-xl font-medium transition-all duration-300 overflow-hidden flex items-center justify-center gap-2"
                         >
                             <div className="absolute inset-0 bg-gradient-to-r from-purple-600/50 to-blue-500/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
                             <Play size={20} className="relative z-10 text-white" />
                             <span className="relative z-10">Create a Room</span>
                         </button>
-                        <button className="px-8 py-4 bg-transparent hover:bg-white/5 border border-white/10 rounded-xl font-medium transition-all duration-300 flex items-center justify-center gap-2 text-gray-300 hover:text-white">
+                        <button
+                            onClick={handleJoinRoom}
+                            disabled={!nickname.trim() || !joinCode.trim()}
+                            className="px-8 py-4 bg-transparent hover:bg-white/5 disabled:opacity-50 disabled:cursor-not-allowed border border-white/10 rounded-xl font-medium transition-all duration-300 flex items-center justify-center gap-2 text-gray-300 hover:text-white"
+                        >
                             {/* LinkIcon uses removed */}
                             <span>Join with Code</span>
                         </button>

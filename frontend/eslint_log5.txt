@@ -1,0 +1,9 @@
+
+C:\CODES\Watch together\frontend\src\components\LandingPage.jsx
+  2:10  error  'motion' is defined but never used. Allowed unused vars must match /^[A-Z_]/u  no-unused-vars
+
+C:\CODES\Watch together\frontend\src\components\RoomLayout.jsx
+  6:8  error  Parsing error: Identifier 'ChatUI' has already been declared
+
+??? 2 problems (2 errors, 0 warnings)
+
