@@ -9,8 +9,8 @@ export const useRoom = () => useContext(RoomContext);
 
 export const RoomProvider = ({ children }) => {
     const [isConnected, setIsConnected] = useState(false);
-    const [currentUser, setCurrentUser] = useState(null); // { id, nickname, role }
-    const [users, setUsers] = useState([]); // List of all users in room
+    const [currentUser, setCurrentUser] = useState(null);
+    const [users, setUsers] = useState([]);
     const [messages, setMessages] = useState([]);
     const [roomId, setRoomId] = useState(null);
     const [videoState, setVideoState] = useState({
@@ -20,33 +20,41 @@ export const RoomProvider = ({ children }) => {
         playedSeconds: 0,
         updatedAt: 0
     });
+    const [queue, setQueue] = useState([]);
     const isKicked = useRef(false);
 
-    // Initialize Socket connection
     useEffect(() => {
-        function onConnect() {
-            setIsConnected(true);
-        }
+        function onConnect() { setIsConnected(true); }
         function onDisconnect() {
             setIsConnected(false);
             setCurrentUser(null);
         }
-        function onRoomJoined({ user, existingUsers, videoState: initialVideoState, chatHistory }) {
+        function onRoomJoined({ user, existingUsers, videoState: initialVideoState, queue: initialQueue, chatHistory }) {
             setCurrentUser(user);
             setUsers(existingUsers);
-            if (initialVideoState) {
-                setVideoState(initialVideoState);
-            }
+            if (initialVideoState) setVideoState(initialVideoState);
+            if (initialQueue) setQueue(initialQueue);
             setMessages(chatHistory || []);
         }
         function onUserJoined(newUser) {
-            setUsers(prev => [...prev, newUser]);
+            setUsers(prev => {
+                if (prev.some(u => u.id === newUser.id)) return prev;
+                toast(`${newUser.nickname} joined`, { icon: '👋', duration: 2000 });
+                return [...prev, newUser];
+            });
         }
         function onUserLeft(userId) {
-            setUsers(prev => prev.filter(u => u.id !== userId));
+            setUsers(prev => {
+                const leaving = prev.find(u => u.id === userId);
+                if (leaving) toast(`${leaving.nickname} left`, { icon: '🚪', duration: 2000 });
+                return prev.filter(u => u.id !== userId);
+            });
         }
         function onReceiveMessage(message) {
-            setMessages(prev => [...prev, message]);
+            setMessages(prev => {
+                if (prev.some(m => m.id === message.id)) return prev;
+                return [...prev, message];
+            });
         }
         function onRoleUpdated({ userId, newRole }) {
             setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
@@ -54,11 +62,11 @@ export const RoomProvider = ({ children }) => {
         }
         function onUserKicked() {
             isKicked.current = true;
-            alert("You have been kicked from the room by the Host.");
-            window.location.href = '/'; // Force redirect and cleanup
+            localStorage.removeItem('watchTogetherSession');
+            alert('You have been kicked from the room by the Host.');
+            window.location.href = '/';
         }
 
-        // --- Video Event Listeners ---
         const addSystemMessage = (text) => {
             setMessages(prev => [...prev, {
                 id: Date.now() + Math.random().toString(),
@@ -71,20 +79,30 @@ export const RoomProvider = ({ children }) => {
 
         function onVideoChanged(newState) {
             setVideoState(newState);
-            addSystemMessage(`The video has been changed.`);
+            addSystemMessage('The video has been changed.');
         }
         function onVideoPlayed() {
             setVideoState(prev => ({ ...prev, isPlaying: true, updatedAt: Date.now() }));
-            addSystemMessage(`Video playing.`);
-            toast('Video playing', { icon: '▶️', duration: 1500 });
+            toast('▶️ Playing', { duration: 1500 });
         }
-        function onVideoPaused() {
-            setVideoState(prev => ({ ...prev, isPlaying: false, updatedAt: Date.now() }));
-            addSystemMessage(`Video paused.`);
-            toast('Video paused', { icon: '⏸️', duration: 1500 });
+        function onVideoPaused({ playedSeconds } = {}) {
+            setVideoState(prev => ({
+                ...prev,
+                isPlaying: false,
+                ...(playedSeconds !== undefined ? { playedSeconds } : {}),
+                updatedAt: Date.now()
+            }));
+            toast('⏸️ Paused', { duration: 1500 });
+        }
+        function onVideoProgress({ playedSeconds }) {
+            // Drift correction — only updates state without triggering a seek on host side
+            setVideoState(prev => ({ ...prev, playedSeconds, updatedAt: Date.now() }));
         }
         function onVideoSeeked(playedSeconds) {
             setVideoState(prev => ({ ...prev, playedSeconds, updatedAt: Date.now() }));
+        }
+        function onQueueUpdated(newQueue) {
+            setQueue(newQueue);
         }
 
         socket.on('connect', onConnect);
@@ -98,7 +116,9 @@ export const RoomProvider = ({ children }) => {
         socket.on('video_changed', onVideoChanged);
         socket.on('video_played', onVideoPlayed);
         socket.on('video_paused', onVideoPaused);
+        socket.on('video_progress', onVideoProgress);
         socket.on('video_seeked', onVideoSeeked);
+        socket.on('queue_updated', onQueueUpdated);
 
         return () => {
             socket.off('connect', onConnect);
@@ -112,25 +132,54 @@ export const RoomProvider = ({ children }) => {
             socket.off('video_changed', onVideoChanged);
             socket.off('video_played', onVideoPlayed);
             socket.off('video_paused', onVideoPaused);
+            socket.off('video_progress', onVideoProgress);
             socket.off('video_seeked', onVideoSeeked);
+            socket.off('queue_updated', onQueueUpdated);
         };
     }, []);
 
+    // --- Auto-reconnect from localStorage ---
+    useEffect(() => {
+        const savedSession = localStorage.getItem('watchTogetherSession');
+        if (savedSession && isConnected && !currentUser) {
+            try {
+                let sessionData = JSON.parse(savedSession);
+                let { roomId: savedRoomId, nickname, userId } = sessionData;
+
+                if (savedRoomId && nickname) {
+                    if (!userId) {
+                        userId = Math.random().toString(36).substring(2, 15);
+                        sessionData.userId = userId;
+                        localStorage.setItem('watchTogetherSession', JSON.stringify(sessionData));
+                    }
+                    setRoomId(savedRoomId);
+                    socket.emit('join_room', { roomId: savedRoomId, nickname, userId });
+                }
+            } catch (e) {
+                console.error('Failed to parse saved session', e);
+            }
+        }
+    }, [isConnected, currentUser]);
+
     const joinRoom = useCallback((id, nickname) => {
         setRoomId(id);
+        const userId = Math.random().toString(36).substring(2, 15);
+        localStorage.setItem('watchTogetherSession', JSON.stringify({ roomId: id, nickname, userId }));
         socket.connect();
-        socket.emit('join_room', { roomId: id, nickname });
+        socket.emit('join_room', { roomId: id, nickname, userId });
     }, []);
 
     const leaveRoom = useCallback(() => {
         if (!isKicked.current) {
             socket.emit('leave_room', { roomId });
         }
+        localStorage.removeItem('watchTogetherSession');
         socket.disconnect();
         setRoomId(null);
         setCurrentUser(null);
         setUsers([]);
         setMessages([]);
+        setQueue([]);
         isKicked.current = false;
     }, [roomId]);
 
@@ -143,48 +192,67 @@ export const RoomProvider = ({ children }) => {
             role: currentUser.role,
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         };
-        // Optimistic UI update
         setMessages(prev => [...prev, msg]);
         socket.emit('send_message', { roomId, message: msg });
     }, [roomId, currentUser]);
 
-    // Role Management Helpers
-    const promoteUser = useCallback((targetId) => {
-        socket.emit('promote_to_moderator', { roomId, targetId });
-    }, [roomId]);
+    const promoteUser = useCallback((targetId) => socket.emit('promote_to_moderator', { roomId, targetId }), [roomId]);
+    const demoteUser = useCallback((targetId) => socket.emit('demote_to_viewer', { roomId, targetId }), [roomId]);
+    const transferHost = useCallback((targetId) => socket.emit('transfer_host', { roomId, targetId }), [roomId]);
+    const kickUser = useCallback((targetId) => socket.emit('kick_user', { roomId, targetId }), [roomId]);
 
-    const demoteUser = useCallback((targetId) => {
-        socket.emit('demote_to_viewer', { roomId, targetId });
-    }, [roomId]);
-
-    const transferHost = useCallback((targetId) => {
-        socket.emit('transfer_host', { roomId, targetId });
-    }, [roomId]);
-
-    const kickUser = useCallback((targetId) => {
-        socket.emit('kick_user', { roomId, targetId });
-    }, [roomId]);
-
-    // --- Video Sync Helpers ---
+    // --- Video Sync ---
     const loadVideo = useCallback((url, magnetURI = '') => {
         if (!url && !magnetURI) return;
-        setVideoState(prev => ({ ...prev, url: url || '', magnetURI: magnetURI || '', isPlaying: false, playedSeconds: 0 }));
-        socket.emit('change_video', { roomId, url: url || '', magnetURI: magnetURI || '' });
+        const newState = {
+            url: url || '',
+            magnetURI: magnetURI || '',
+            isPlaying: true,
+            playedSeconds: 0,
+            updatedAt: Date.now()
+        };
+        setVideoState(newState);
+        socket.emit('change_video', { roomId, ...newState });
     }, [roomId]);
 
     const playVideo = useCallback(() => {
-        setVideoState(prev => ({ ...prev, isPlaying: true }));
-        socket.emit('play_video', { roomId });
+        setVideoState(prev => {
+            if (prev.isPlaying) return prev;
+            socket.emit('play_video', { roomId });
+            return { ...prev, isPlaying: true };
+        });
     }, [roomId]);
 
-    const pauseVideo = useCallback(() => {
-        setVideoState(prev => ({ ...prev, isPlaying: false }));
-        socket.emit('pause_video', { roomId });
+    const pauseVideo = useCallback((playedSeconds) => {
+        setVideoState(prev => {
+            if (!prev.isPlaying) return prev;
+            socket.emit('pause_video', { roomId, playedSeconds });
+            return { ...prev, isPlaying: false, ...(playedSeconds !== undefined ? { playedSeconds } : {}) };
+        });
+    }, [roomId]);
+
+    const syncProgress = useCallback((playedSeconds) => {
+        // Host-only: periodically sync position to server
+        socket.emit('sync_progress', { roomId, playedSeconds });
     }, [roomId]);
 
     const seekVideo = useCallback((seconds) => {
         setVideoState(prev => ({ ...prev, playedSeconds: seconds }));
         socket.emit('seek_video', { roomId, playedSeconds: seconds });
+    }, [roomId]);
+
+    // --- Queue Management ---
+    const addToQueue = useCallback((url, magnetURI = '', label = '') => {
+        if (!url && !magnetURI) return;
+        socket.emit('add_to_queue', { roomId, url, magnetURI, label: label || url });
+    }, [roomId]);
+
+    const removeFromQueue = useCallback((itemId) => {
+        socket.emit('remove_from_queue', { roomId, itemId });
+    }, [roomId]);
+
+    const playNext = useCallback(() => {
+        socket.emit('play_next', { roomId });
     }, [roomId]);
 
     return (
@@ -195,6 +263,7 @@ export const RoomProvider = ({ children }) => {
             messages,
             roomId,
             videoState,
+            queue,
             joinRoom,
             leaveRoom,
             sendMessage,
@@ -205,7 +274,11 @@ export const RoomProvider = ({ children }) => {
             loadVideo,
             playVideo,
             pauseVideo,
-            seekVideo
+            seekVideo,
+            addToQueue,
+            removeFromQueue,
+            playNext,
+            syncProgress,
         }}>
             {children}
         </RoomContext.Provider>

@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LogOut, Play, Settings, Share2, Menu, X } from 'lucide-react';
+import { LogOut, Play, Settings, Share2, Menu, X, Copy } from 'lucide-react';
 import ChatUI from './ChatUI';
 import UserQueueSidebar from './UserQueueSidebar';
 import VideoPlayer from './VideoPlayer';
 import { useRoom } from '../context/RoomContext';
+import toast from 'react-hot-toast';
 
 const RoomLayout = () => {
     const { roomId } = useParams();
@@ -41,9 +42,16 @@ const RoomLayout = () => {
                     <div className="h-6 w-px bg-white/10 mx-2 hidden sm:block" />
                     <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-full px-3 py-1 shadow-inner">
                         <span className="text-gray-400 text-sm">Room:</span>
-                        <span className="font-mono font-medium text-purple-300">{roomId}</span>
-                        <button className="text-gray-400 hover:text-white transition-colors ml-2">
-                            <Share2 size={14} />
+                        <button
+                            onClick={() => {
+                                navigator.clipboard.writeText(roomId);
+                                toast.success('Room ID copied to clipboard!', { icon: '📋' });
+                            }}
+                            className="flex items-center gap-1.5 hover:bg-white/10 px-2 rounded transition-colors group"
+                            title="Copy Room ID"
+                        >
+                            <span className="font-mono font-medium text-purple-300">{roomId}</span>
+                            <Copy size={12} className="text-gray-500 group-hover:text-white transition-colors" />
                         </button>
                     </div>
                 </div>
