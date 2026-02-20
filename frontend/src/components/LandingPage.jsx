@@ -2,12 +2,19 @@ import React, { useState } from 'react';
 import { Play, Users, Sparkles, User } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useRoom } from '../context/RoomContext';
+import { motion } from 'framer-motion';
 
 const LandingPage = () => {
     const navigate = useNavigate();
-    const { joinRoom } = useRoom();
+    const { joinRoom, currentUser, roomId } = useRoom();
     const [nickname, setNickname] = useState('');
     const [joinCode, setJoinCode] = useState('');
+
+    React.useEffect(() => {
+        if (currentUser && roomId) {
+            navigate(`/room/${roomId}`);
+        }
+    }, [currentUser, roomId, navigate]);
 
     const handleCreateRoom = () => {
         if (!nickname.trim()) {
@@ -16,7 +23,6 @@ const LandingPage = () => {
         }
         const randomId = Math.random().toString(36).substring(2, 9);
         joinRoom(randomId, nickname);
-        navigate(`/room/${randomId}`);
     };
 
     const handleJoinRoom = () => {
@@ -25,7 +31,6 @@ const LandingPage = () => {
             return;
         }
         joinRoom(joinCode, nickname);
-        navigate(`/room/${joinCode}`);
     };
 
     return (

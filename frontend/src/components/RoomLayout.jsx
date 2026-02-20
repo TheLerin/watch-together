@@ -18,13 +18,7 @@ const RoomLayout = () => {
             navigate('/', { replace: true });
             return;
         }
-
-        // We handle the join room action from LandingPage before navigation usually.
-        // If we want direct link joins later, we'd handle it here prompting for a nickname.
-        return () => {
-            leaveRoom();
-        };
-    }, [currentUser, leaveRoom, navigate]);
+    }, [currentUser, navigate]);
 
     // Don't render until we verify user or redirect
     if (!currentUser) return null;
