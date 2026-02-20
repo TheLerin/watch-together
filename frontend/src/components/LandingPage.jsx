@@ -1,0 +1,95 @@
+import React from 'react';
+import { motion } from 'framer-motion';
+import { Play, Users, Sparkles } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+
+const LandingPage = () => {
+    const navigate = useNavigate();
+
+    const handleCreateRoom = () => {
+        // In future phases, this will hit backend or generate ID
+        const randomId = Math.random().toString(36).substring(2, 9);
+        navigate(`/room/${randomId}`);
+    };
+
+    return (
+        <div className="min-h-screen flex flex-col items-center justify-center relative bg-background">
+            {/* Animated Background Elements */}
+            <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-purple-600/20 rounded-full blur-[100px] animate-pulse" />
+            <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-blue-500/20 rounded-full blur-[100px] animate-pulse" style={{ animationDelay: '2s' }} />
+
+            <main className="z-10 w-full max-w-5xl px-6 flex flex-col lg:flex-row items-center gap-12">
+                {/* Left Side: Copy & Branding */}
+                <motion.div
+                    initial={{ opacity: 0, x: -50 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.8, ease: "easeOut" }}
+                    className="flex-1 text-center lg:text-left"
+                >
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-white/10 bg-white/5 backdrop-blur-sm text-sm font-medium mb-6 text-gray-300">
+                        <Sparkles size={16} className="text-purple-400" />
+                        <span>Premium Viewing Experience</span>
+                    </div>
+                    <h1 className="text-5xl lg:text-7xl font-bold tracking-tight mb-6">
+                        Watch <span className="text-gradient">Together.</span> <br /> In Sync.
+                    </h1>
+                    <p className="text-lg text-gray-400 mb-8 max-w-lg mx-auto lg:mx-0">
+                        Create a room, invite your friends, and enjoy synchronized playback of your favorite videos. Zero friction, pure luxury.
+                    </p>
+
+                    <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
+                        <button
+                            onClick={handleCreateRoom}
+                            className="group relative px-8 py-4 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl font-medium transition-all duration-300 overflow-hidden flex items-center justify-center gap-2"
+                        >
+                            <div className="absolute inset-0 bg-gradient-to-r from-purple-600/50 to-blue-500/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+                            <Play size={20} className="relative z-10 text-white" />
+                            <span className="relative z-10">Create a Room</span>
+                        </button>
+                        <button className="px-8 py-4 bg-transparent hover:bg-white/5 border border-white/10 rounded-xl font-medium transition-all duration-300 flex items-center justify-center gap-2 text-gray-300 hover:text-white">
+                            {/* LinkIcon uses removed */}
+                            <span>Join with Code</span>
+                        </button>
+                    </div>
+                </motion.div>
+
+                {/* Right Side: Visual Representation */}
+                <motion.div
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}
+                    className="flex-1 w-full max-w-md animate-float"
+                >
+                    <div className="glass-card p-6 aspect-video flex flex-col justify-between">
+                        <div className="flex items-center justify-between">
+                            <div className="flex gap-2">
+                                <div className="w-3 h-3 rounded-full bg-red-500/80" />
+                                <div className="w-3 h-3 rounded-full bg-yellow-500/80" />
+                                <div className="w-3 h-3 rounded-full bg-green-500/80" />
+                            </div>
+                            <div className="flex -space-x-2">
+                                {[1, 2, 3].map(i => (
+                                    <div key={i} className="w-8 h-8 rounded-full border border-gray-800 bg-gray-700 flex items-center justify-center text-xs shadow-lg">
+                                        <Users size={12} className="text-gray-300" />
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="flex-1 my-4 bg-black/40 rounded-lg border border-white/5 flex items-center justify-center mt-6">
+                            <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center backdrop-blur-sm border border-white/20 text-white">
+                                <Play fill="currentColor" size={24} className="ml-1" />
+                            </div>
+                        </div>
+
+                        <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
+                            <div className="h-full bg-gradient-to-r from-purple-500 to-blue-500 w-1/3 rounded-full" />
+                        </div>
+                    </div>
+                </motion.div>
+            </main>
+        </div>
+    );
+};
+
+export default LandingPage;

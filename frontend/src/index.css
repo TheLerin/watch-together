@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-background text-white antialiased overflow-x-hidden;
+  }
+}
+
+@layer utilities {
+  .glass {
+    background-color: rgba(17, 17, 17, 0.4);
+    @apply backdrop-blur-md border border-white/10 shadow-xl;
+  }
+
+  .glass-card {
+    @apply glass rounded-2xl relative overflow-hidden;
+  }
+
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-blue-500;
+  }
+}
