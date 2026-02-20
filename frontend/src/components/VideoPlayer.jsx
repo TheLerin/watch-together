@@ -1,13 +1,17 @@
 import React, { useRef, useEffect, useState } from 'react';
 import ReactPlayer from 'react-player';
 import { useRoom } from '../context/RoomContext';
-import { Play, Link as LinkIcon, Lock } from 'lucide-react';
+import { Play, Link as LinkIcon, Lock, Upload } from 'lucide-react';
+import { getTorrentClient } from '../torrentClient';
 
 const VideoPlayer = () => {
     const { videoState, currentUser, loadVideo, playVideo, pauseVideo, seekVideo } = useRoom();
     const playerRef = useRef(null);
+    const fileInputRef = useRef(null);
     const [inputUrl, setInputUrl] = useState('');
     const [isPlayerReady, setIsPlayerReady] = useState(false);
+    const [localStreamUrl, setLocalStreamUrl] = useState('');
+    const [torrentProgress, setTorrentProgress] = useState(0);
 
     const isPrivileged = currentUser?.role === 'Host' || currentUser?.role === 'Moderator';
 
@@ -48,6 +52,28 @@ const VideoPlayer = () => {
         seekVideo(seconds);
     };
 
+    const handleFileUpload = (e) => {
+        const file = e.target.files[0];
+        if (!file || !isPrivileged) return;
+
+        const client = getTorrentClient();
+        console.log('Seeding file...', file.name);
+
+        client.seed(file, (torrent) => {
+            console.log('Seeding successfully! Magnet URI generated:', torrent.magnetURI);
+
+            // Generate a local blob for immediate playback for the Host
+            file.getBlobURL((err, url) => {
+                if (!err) {
+                    setLocalStreamUrl(url);
+                }
+            });
+
+            // Broadcast the magnet URI to everyone else
+            loadVideo('', torrent.magnetURI);
+        });
+    };
+
     return (
         <div className="flex flex-col h-full w-full gap-4 relative">
             {/* Control Bar for Hosts/Moderators */}
@@ -63,6 +89,16 @@ const VideoPlayer = () => {
                             className="w-full bg-zinc-900/50 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-purple-500/50 transition-all"
                         />
                     </div>
+                    <button type="button" onClick={() => fileInputRef.current?.click()} className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-gray-300 border border-white/10 rounded-xl text-sm font-medium transition-colors flex items-center gap-2">
+                        <Upload size={16} /> File
+                    </button>
+                    <input
+                        type="file"
+                        ref={fileInputRef}
+                        className="hidden"
+                        accept="video/mp4,video/webm"
+                        onChange={handleFileUpload}
+                    />
                     <button type="submit" className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-sm font-medium transition-colors">
                         Load
                     </button>
@@ -71,7 +107,7 @@ const VideoPlayer = () => {
 
             {/* Video Player Container */}
             <div className="flex-1 bg-black rounded-2xl overflow-hidden border border-white/10 relative group">
-                {!videoState.url ? (
+                {(!videoState.url && !localStreamUrl && !videoState.magnetURI) ? (
                     <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-10">
                         <div className="w-20 h-20 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-6 ring-4 ring-white/5 animate-pulse">
                             <Play size={32} className="text-gray-400 ml-2" />
@@ -83,29 +119,43 @@ const VideoPlayer = () => {
                     </div>
                 ) : (
                     <>
+                        {/* Loading State for Magnet URI Downloads */}
+                        {videoState.magnetURI && !localStreamUrl && (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-10 bg-black">
+                                <div className="w-16 h-16 rounded-full border-4 border-purple-500 border-t-transparent animate-spin mb-6" />
+                                <h2 className="text-xl font-semibold mb-2 text-gray-200">Connecting to P2P Swarm</h2>
+                                <p className="text-gray-400 text-sm mb-2">Downloading chunks directly from the Host...</p>
+                                <div className="w-48 h-2 bg-white/10 rounded-full overflow-hidden">
+                                    <div className="h-full bg-purple-500" style={{ width: `${torrentProgress * 100}%` }} />
+                                </div>
+                            </div>
+                        )}
+
                         {/* The actual React Player */}
-                        <ReactPlayer
-                            ref={playerRef}
-                            url={videoState.url}
-                            playing={videoState.isPlaying}
-                            controls={isPrivileged} // Only show native controls for privileged users
-                            width="100%"
-                            height="100%"
-                            onReady={() => setIsPlayerReady(true)}
-                            onPlay={handlePlay}
-                            onPause={handlePause}
-                            onSeek={handleSeek}
-                            // To prevent loopback spam, we rely on the internal progress event 
-                            // sparingly, but primarily just broadcast state changes.
-                            config={{
-                                youtube: {
-                                    playerVars: {
-                                        disablekb: isPrivileged ? 0 : 1,
-                                        modestbranding: 1
+                        {(videoState.url || localStreamUrl) && (
+                            <ReactPlayer
+                                ref={playerRef}
+                                url={localStreamUrl || videoState.url}
+                                playing={videoState.isPlaying}
+                                controls={isPrivileged} // Only show native controls for privileged users
+                                width="100%"
+                                height="100%"
+                                onReady={() => setIsPlayerReady(true)}
+                                onPlay={handlePlay}
+                                onPause={handlePause}
+                                onSeek={handleSeek}
+                                // To prevent loopback spam, we rely on the internal progress event 
+                                // sparingly, but primarily just broadcast state changes.
+                                config={{
+                                    youtube: {
+                                        playerVars: {
+                                            disablekb: isPrivileged ? 0 : 1,
+                                            modestbranding: 1
+                                        }
                                     }
-                                }
-                            }}
-                        />
+                                }}
+                            />
+                        )}
 
                         {/* Overlay for Viewers to block clicking on native iframe play/pause buttons */}
                         {!isPrivileged && (

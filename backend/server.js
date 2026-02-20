@@ -34,6 +34,7 @@ io.on('connection', (socket) => {
                 users: [],
                 videoState: {
                     url: '',
+                    magnetURI: '',
                     isPlaying: false,
                     playedSeconds: 0,
                     updatedAt: Date.now()
@@ -154,14 +155,14 @@ io.on('connection', (socket) => {
 
     // --- VIDEO SYNC MANAGEMENT ---
 
-    socket.on('change_video', ({ roomId, url }) => {
+    socket.on('change_video', ({ roomId, url, magnetURI }) => {
         const sender = getUserInRoom(socket.id, roomId);
         if (sender && (sender.role === 'Host' || sender.role === 'Moderator')) {
             if (rooms[roomId]) {
-                const newState = { url, isPlaying: false, playedSeconds: 0, updatedAt: Date.now() };
+                const newState = { url: url || '', magnetURI: magnetURI || '', isPlaying: false, playedSeconds: 0, updatedAt: Date.now() };
                 rooms[roomId].videoState = newState;
                 io.to(roomId).emit('video_changed', newState);
-                console.log(`Video changed in ${roomId} to ${url}`);
+                console.log(`Video changed in ${roomId} to URL:${url} Magnet:${magnetURI ? 'YES' : 'NO'}`);
             }
         }
     });

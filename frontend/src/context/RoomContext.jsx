@@ -14,6 +14,7 @@ export const RoomProvider = ({ children }) => {
     const [roomId, setRoomId] = useState(null);
     const [videoState, setVideoState] = useState({
         url: '',
+        magnetURI: '',
         isPlaying: false,
         playedSeconds: 0,
         updatedAt: Date.now()
@@ -149,10 +150,10 @@ export const RoomProvider = ({ children }) => {
     }, [roomId]);
 
     // --- Video Sync Helpers ---
-    const loadVideo = useCallback((url) => {
-        if (!url || !url.trim()) return;
-        setVideoState(prev => ({ ...prev, url, isPlaying: false, playedSeconds: 0 }));
-        socket.emit('change_video', { roomId, url });
+    const loadVideo = useCallback((url, magnetURI = '') => {
+        if (!url && !magnetURI) return;
+        setVideoState(prev => ({ ...prev, url: url || '', magnetURI: magnetURI || '', isPlaying: false, playedSeconds: 0 }));
+        socket.emit('change_video', { roomId, url: url || '', magnetURI: magnetURI || '' });
     }, [roomId]);
 
     const playVideo = useCallback(() => {
