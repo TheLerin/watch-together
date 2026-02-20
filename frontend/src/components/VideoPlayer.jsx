@@ -3,6 +3,7 @@ import ReactPlayer from 'react-player';
 import { useRoom } from '../context/RoomContext';
 import { Play, Link as LinkIcon, Lock, Upload } from 'lucide-react';
 import { getTorrentClient } from '../torrentClient';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const VideoPlayer = () => {
     const { videoState, currentUser, loadVideo, playVideo, pauseVideo, seekVideo } = useRoom();
@@ -107,70 +108,86 @@ const VideoPlayer = () => {
 
             {/* Video Player Container */}
             <div className="flex-1 bg-black rounded-2xl overflow-hidden border border-white/10 relative group">
-                {(!videoState.url && !localStreamUrl && !videoState.magnetURI) ? (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-10">
-                        <div className="w-20 h-20 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-6 ring-4 ring-white/5 animate-pulse">
-                            <Play size={32} className="text-gray-400 ml-2" />
-                        </div>
-                        <h2 className="text-xl font-semibold mb-2 text-gray-200">No Video Playing</h2>
-                        <p className="text-gray-400 max-w-sm text-sm">
-                            {isPrivileged ? "Enter a video link above to start watching together." : "Waiting for the Host to start a video."}
-                        </p>
-                    </div>
-                ) : (
-                    <>
-                        {/* Loading State for Magnet URI Downloads */}
-                        {videoState.magnetURI && !localStreamUrl && (
-                            <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-10 bg-black">
-                                <div className="w-16 h-16 rounded-full border-4 border-purple-500 border-t-transparent animate-spin mb-6" />
-                                <h2 className="text-xl font-semibold mb-2 text-gray-200">Connecting to P2P Swarm</h2>
-                                <p className="text-gray-400 text-sm mb-2">Downloading chunks directly from the Host...</p>
-                                <div className="w-48 h-2 bg-white/10 rounded-full overflow-hidden">
-                                    <div className="h-full bg-purple-500" style={{ width: `${torrentProgress * 100}%` }} />
+                <AnimatePresence mode="wait">
+                    {(!videoState.url && !localStreamUrl && !videoState.magnetURI) ? (
+                        <motion.div
+                            key="empty"
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            transition={{ duration: 0.3 }}
+                            className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-10"
+                        >
+                            <div className="w-20 h-20 rounded-full bg-white/5 border border-white/10 flex items-center justify-center mb-6 ring-4 ring-white/5 animate-pulse">
+                                <Play size={32} className="text-gray-400 ml-2" />
+                            </div>
+                            <h2 className="text-xl font-semibold mb-2 text-gray-200">No Video Playing</h2>
+                            <p className="text-gray-400 max-w-sm text-sm">
+                                {isPrivileged ? "Enter a video link above to start watching together." : "Waiting for the Host to start a video."}
+                            </p>
+                        </motion.div>
+                    ) : (
+                        <motion.div
+                            key="player"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.5 }}
+                            className="absolute inset-0 w-full h-full"
+                        >
+                            {/* Loading State for Magnet URI Downloads */}
+                            {videoState.magnetURI && !localStreamUrl && (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-10 bg-black">
+                                    <div className="w-16 h-16 rounded-full border-4 border-purple-500 border-t-transparent animate-spin mb-6" />
+                                    <h2 className="text-xl font-semibold mb-2 text-gray-200">Connecting to P2P Swarm</h2>
+                                    <p className="text-gray-400 text-sm mb-2">Downloading chunks directly from the Host...</p>
+                                    <div className="w-48 h-2 bg-white/10 rounded-full overflow-hidden">
+                                        <div className="h-full bg-purple-500" style={{ width: `${torrentProgress * 100}%` }} />
+                                    </div>
                                 </div>
-                            </div>
-                        )}
+                            )}
 
-                        {/* The actual React Player */}
-                        {(videoState.url || localStreamUrl) && (
-                            <ReactPlayer
-                                ref={playerRef}
-                                url={localStreamUrl || videoState.url}
-                                playing={videoState.isPlaying}
-                                controls={isPrivileged} // Only show native controls for privileged users
-                                width="100%"
-                                height="100%"
-                                onReady={() => setIsPlayerReady(true)}
-                                onPlay={handlePlay}
-                                onPause={handlePause}
-                                onSeek={handleSeek}
-                                // To prevent loopback spam, we rely on the internal progress event 
-                                // sparingly, but primarily just broadcast state changes.
-                                config={{
-                                    youtube: {
-                                        playerVars: {
-                                            disablekb: isPrivileged ? 0 : 1,
-                                            modestbranding: 1
+                            {/* The actual React Player */}
+                            {(videoState.url || localStreamUrl) && (
+                                <ReactPlayer
+                                    ref={playerRef}
+                                    url={localStreamUrl || videoState.url}
+                                    playing={videoState.isPlaying}
+                                    controls={isPrivileged} // Only show native controls for privileged users
+                                    width="100%"
+                                    height="100%"
+                                    onReady={() => setIsPlayerReady(true)}
+                                    onPlay={handlePlay}
+                                    onPause={handlePause}
+                                    onSeek={handleSeek}
+                                    // To prevent loopback spam, we rely on the internal progress event 
+                                    // sparingly, but primarily just broadcast state changes.
+                                    config={{
+                                        youtube: {
+                                            playerVars: {
+                                                disablekb: isPrivileged ? 0 : 1,
+                                                modestbranding: 1
+                                            }
                                         }
-                                    }
-                                }}
-                            />
-                        )}
+                                    }}
+                                />
+                            )}
 
-                        {/* Overlay for Viewers to block clicking on native iframe play/pause buttons */}
-                        {!isPrivileged && (
-                            <div className="absolute inset-0 z-20" />
-                        )}
+                            {/* Overlay for Viewers to block clicking on native iframe play/pause buttons */}
+                            {!isPrivileged && (
+                                <div className="absolute inset-0 z-20" />
+                            )}
 
-                        {/* Lock Icon indicator for Viewers */}
-                        {!isPrivileged && (
-                            <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-30 pointer-events-none">
-                                <Lock size={12} className="text-gray-400" />
-                                <span className="text-xs text-gray-300 font-medium tracking-wide">Viewer constraints active</span>
-                            </div>
-                        )}
-                    </>
-                )}
+                            {/* Lock Icon indicator for Viewers */}
+                            {!isPrivileged && (
+                                <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity z-30 pointer-events-none">
+                                    <Lock size={12} className="text-gray-400" />
+                                    <span className="text-xs text-gray-300 font-medium tracking-wide">Viewer constraints active</span>
+                                </div>
+                            )}
+                        </motion.div>
+                    )}
+                </AnimatePresence>
             </div>
         </div>
     );

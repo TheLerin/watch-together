@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { socket } from '../socket';
+import toast from 'react-hot-toast';
 
 const RoomContext = createContext();
 
@@ -17,7 +18,7 @@ export const RoomProvider = ({ children }) => {
         magnetURI: '',
         isPlaying: false,
         playedSeconds: 0,
-        updatedAt: Date.now()
+        updatedAt: 0
     });
     const isKicked = useRef(false);
 
@@ -58,14 +59,29 @@ export const RoomProvider = ({ children }) => {
         }
 
         // --- Video Event Listeners ---
+        const addSystemMessage = (text) => {
+            setMessages(prev => [...prev, {
+                id: Date.now() + Math.random().toString(),
+                nickname: 'System',
+                text,
+                timestamp: Date.now(),
+                isSystem: true
+            }]);
+        };
+
         function onVideoChanged(newState) {
             setVideoState(newState);
+            addSystemMessage(`The video has been changed.`);
         }
         function onVideoPlayed() {
             setVideoState(prev => ({ ...prev, isPlaying: true, updatedAt: Date.now() }));
+            addSystemMessage(`Video playing.`);
+            toast('Video playing', { icon: '▶️', duration: 1500 });
         }
         function onVideoPaused() {
             setVideoState(prev => ({ ...prev, isPlaying: false, updatedAt: Date.now() }));
+            addSystemMessage(`Video paused.`);
+            toast('Video paused', { icon: '⏸️', duration: 1500 });
         }
         function onVideoSeeked(playedSeconds) {
             setVideoState(prev => ({ ...prev, playedSeconds, updatedAt: Date.now() }));
