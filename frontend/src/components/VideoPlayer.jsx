@@ -430,8 +430,8 @@ const VideoPlayer = () => {
                                 </div>
                             )}
 
-                            {/* ReactPlayer for everyone except P2P viewers and Spotify */}
-                            {!isP2PViewer && !isSpotify && playerUrl && (
+                            {/* ReactPlayer for URL-based content (not WebRTC viewer or Spotify) */}
+                            {!isWebRTCViewer && !isSpotify && playerUrl && (
                                 <ReactPlayer
                                     ref={playerRef}
                                     key={playerUrl}
