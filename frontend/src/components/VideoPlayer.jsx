@@ -236,8 +236,8 @@ const VideoPlayer = () => {
         e.preventDefault();
         if (!isPrivileged || !inputUrl.trim()) return;
         setPlayerError(null);
-        // If streaming a local file, stop it first
-        if (isHostStreaming) handleStopStream();
+        // Always stop any active local stream / clear blob url
+        handleStopStream();
         loadVideo(inputUrl.trim());
         setInputUrl('');
     };
@@ -247,8 +247,8 @@ const VideoPlayer = () => {
         if (!file || !isPrivileged) return;
         e.target.value = '';
         setPlayerError(null);
-        // Stop any previous local stream
-        if (isHostStreaming) handleStopStream();
+        // Always stop any previous local stream / clear blob url
+        handleStopStream();
         // Create a blob URL — rendering a <video src={blobUrl}> will trigger captureStream
         if (hostBlobUrl) URL.revokeObjectURL(hostBlobUrl);
         setHostBlobUrl(URL.createObjectURL(file));
