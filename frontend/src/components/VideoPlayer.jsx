@@ -238,16 +238,16 @@ const VideoPlayer = () => {
     };
 
     // Render helpers
-    const playerUrl = localStreamUrl || videoState.url || null;
-    const hasContent = !!(videoState.url || videoState.magnetURI || localStreamUrl);
-    const isP2PViewer = videoState.magnetURI && !isPrivileged && !localStreamUrl;
+    const playerUrl = videoState.url || null;
+    const isWebRTCViewer = !!remoteStream && !isPrivileged;
+    const isWebRTCHost = isHostStreaming && isPrivileged;
+    const hasContent = !!(videoState.url || isWebRTCViewer || isWebRTCHost);
 
     // Spotify link parsing
     let isSpotify = false;
     let spotifyEmbedUrl = '';
     if (playerUrl && playerUrl.includes('spotify.com')) {
         isSpotify = true;
-        // Convert https://open.spotify.com/track/123 to https://open.spotify.com/embed/track/123
         const match = playerUrl.match(/spotify\.com\/(track|album|playlist|episode|show)\/([a-zA-Z0-9]+)/);
         if (match) {
             spotifyEmbedUrl = `https://open.spotify.com/embed/${match[1]}/${match[2]}?utm_source=generator&theme=${theme === 'light' ? '0' : '1'}`;
