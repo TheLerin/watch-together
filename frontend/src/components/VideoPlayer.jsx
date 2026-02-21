@@ -1,30 +1,24 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import ReactPlayer from 'react-player/lazy';
 import { useRoom } from '../context/RoomContext';
-import { Play, Link as LinkIcon, Lock, Upload, AlertCircle, Plus, ChevronDown, Mic, Subtitles as SubtitlesIcon } from 'lucide-react';
-import { getTorrentClient } from '../torrentClient';
+import { Play, Lock, Upload, AlertCircle, Plus, ChevronDown, Mic, Subtitles as SubtitlesIcon, StopCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { useTheme } from '../context/ThemeContext';
 
 // How often the host reports playback position to the server (ms)
-const SYNC_INTERVAL_MS = 2000; // Faster sync (was 4000)
+const SYNC_INTERVAL_MS = 2000;
 // Maximum drift allowed before viewers auto-seek (seconds)
-const DRIFT_THRESHOLD = 2; // Tighter sync (was 3)
-// Public WebTorrent Trackers (works on Vercel/Render, no backend required)
-const PUBLIC_TRACKERS = [
-    'wss://tracker.openwebtorrent.com',
-    'wss://tracker.btorrent.xyz',
-    'wss://tracker.fastcast.nz'
-];
+const DRIFT_THRESHOLD = 2;
 
 const VideoPlayer = () => {
-    const { videoState, currentUser, loadVideo, addToQueue, playVideo, pauseVideo, syncProgress } = useRoom();
+    const { videoState, currentUser, loadVideo, addToQueue, playVideo, pauseVideo, syncProgress,
+        remoteStream, isHostStreaming, startLocalStream, stopLocalStream, getHostStreamer } = useRoom();
     const { theme, setAdaptiveColor } = useTheme();
 
     // Refs
     const playerRef = useRef(null);
-    const p2pVideoRef = useRef(null); // Used only for P2P viewers (renderTo target)
+    const webrtcVideoRef = useRef(null); // <video> element that renders remote stream (viewer)
     const fileInputRef = useRef(null);
     const subtitleInputRef = useRef(null);
     const syncIntervalRef = useRef(null);
@@ -32,11 +26,8 @@ const VideoPlayer = () => {
     // State
     const [inputUrl, setInputUrl] = useState('');
     const [isPlayerReady, setIsPlayerReady] = useState(false);
-    const [localStreamUrl, setLocalStreamUrl] = useState('');     // Object URL for host uploaded file
-    const p2pFileRef = useRef(null);       // WebTorrent file ref for Viewer (NOT in state — state strips prototype!)
-    const [p2pVideoFile, setP2pVideoFile] = useState(null);       // Boolean flag — true when P2P file is ready
-    const [torrentProgress, setTorrentProgress] = useState(0);
     const [playerError, setPlayerError] = useState(null);
+    const [localFileName, setLocalFileName] = useState(''); // display name for host's local file
 
     // Tracks
     const [subtitleTracks, setSubtitleTracks] = useState([]); // [{label, kind, srcLang, src}]
@@ -57,7 +48,7 @@ const VideoPlayer = () => {
     // Local tracking of last position we synced, so onProgress doesn't re-trigger immediately after sync
     const lastSyncedPosRef = useRef(0);
 
-    // ─── 1. Reset state on URL change ────────────────────────────────────────
+    // ─── 1. Reset state on URL/magnetURI change ───────────────────────────────
     useEffect(() => {
         setIsPlayerReady(false);
         setPlayerError(null);
@@ -65,159 +56,41 @@ const VideoPlayer = () => {
         setAudioTracks([]);
         setActiveSubtitle(-1);
         setActiveAudio(0);
-
-        // If we switched off a local file/P2P
-        if (videoState.url && !videoState.magnetURI) {
-            setLocalStreamUrl('');
-            setP2pVideoFile(null);
-            setTorrentProgress(0);
-        }
-        if (!videoState.url && !videoState.magnetURI) {
-            setLocalStreamUrl('');
-            setP2pVideoFile(null);
-            setTorrentProgress(0);
+        // If video changed away from local streaming, clear display name
+        if (!videoState.magnetURI || videoState.magnetURI !== 'local') {
+            setLocalFileName('');
         }
     }, [videoState.url, videoState.magnetURI]);
 
-    // ─── 2. Viewer P2P: Stream torrent instantly via renderTo ─────────────────
+    // ─── 2. WebRTC viewer: assign remote stream to video element ──────────────
     useEffect(() => {
-        if (!videoState.magnetURI || isPrivileged) return;
-        setPlayerError(null);
-        p2pFileRef.current = null;
-        setP2pVideoFile(false); // reset flag
+        if (!remoteStream || !webrtcVideoRef.current) return;
+        webrtcVideoRef.current.srcObject = remoteStream;
+        webrtcVideoRef.current.play().catch(() => { });
+        setIsPlayerReady(true);
+    }, [remoteStream]);
 
-        const client = getTorrentClient();
-        let addedByUs = false;
-
-        const onReady = (t) => {
-            if (typeof t.on === 'function') {
-                t.on('download', () => setTorrentProgress(t.progress));
-            }
-            setTorrentProgress(t.progress);
-
-            if (t.files?.length > 0) {
-                console.log('P2P file detected:', t.files[0].name);
-                // Store the real object in a ref, NOT in state (state serialization strips methods)
-                p2pFileRef.current = t.files[0];
-                setP2pVideoFile(true); // trigger re-render so the useEffect below can run renderTo
-            }
-        };
-
-        const existing = client.get(videoState.magnetURI);
-        if (!existing) {
-            addedByUs = true;
-            client.add(videoState.magnetURI, { announce: PUBLIC_TRACKERS }, onReady);
-        } else if (existing.ready) {
-            onReady(existing);
-        } else if (typeof existing.on === 'function') {
-            existing.on('ready', () => onReady(existing));
-        } else {
-            // Stale stub — destroy and re-add
-            try { client.remove(videoState.magnetURI); } catch (_) { }
-            addedByUs = true;
-            client.add(videoState.magnetURI, { announce: PUBLIC_TRACKERS }, onReady);
-        }
-
-        return () => {
-            // Cleanup: Remove only if WE added it
-            if (addedByUs) {
-                try { client.remove(videoState.magnetURI); } catch (_) { }
-            }
-        };
-    }, [videoState.magnetURI, isPrivileged]);
-
-    // Stream P2P file using WebTorrent v2 blob() API (renderTo was removed in v2)
+    // ─── 3. WebRTC viewer: sync play/pause on the remote video element ────────
     useEffect(() => {
-        if (!p2pVideoFile || !p2pFileRef.current || !p2pVideoRef.current || isPlayerReady) return;
-
-        const file = p2pFileRef.current;
-        let blobUrl = null;
-        let cancelled = false;
-
-        // WebTorrent v2: use file.blob() which returns a Promise<Blob>
-        if (typeof file.blob === 'function') {
-            console.log('P2P: Using WebTorrent v2 blob() API for streaming...');
-            file.blob()
-                .then(blob => {
-                    if (cancelled) return;
-                    blobUrl = URL.createObjectURL(blob);
-                    if (p2pVideoRef.current) {
-                        p2pVideoRef.current.src = blobUrl;
-                        p2pVideoRef.current.autoplay = videoState.isPlaying;
-                        p2pVideoRef.current.muted = false;
-                        p2pVideoRef.current.load();
-                        console.log('P2P: blob URL set, src =', blobUrl);
-                        setIsPlayerReady(true);
-                    }
-                })
-                .catch(err => {
-                    if (cancelled) return;
-                    console.error('P2P blob() error:', err);
-                    setPlayerError('Failed to load P2P stream.');
-                });
-        } else if (typeof file.renderTo === 'function') {
-            // Fallback for potential v1 builds
-            const container = p2pVideoRef.current;
-            container.innerHTML = '';
-            file.renderTo(container, { autoplay: videoState.isPlaying, muted: false }, (err) => {
-                if (cancelled) return;
-                if (err) { setPlayerError('Failed to render P2P stream.'); }
-                else { setIsPlayerReady(true); }
-            });
-        } else {
-            console.error('WebTorrent File has neither blob() nor renderTo(). File:', file);
-            setPlayerError('Unsupported WebTorrent version — cannot stream P2P.');
-        }
-
-        return () => {
-            cancelled = true;
-            // NOTE: Do NOT revoke blobUrl here — the video element still needs it.
-            // It will be garbage-collected when the component fully unmounts via the cleanup below.
-        };
-        // IMPORTANT: Do NOT include videoState.isPlaying in this dep array!
-        // If it's included, every play/pause toggle would revoke and recreate the
-        // blob URL, causing ERR_FILE_NOT_FOUND after every single pause/play.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [p2pVideoFile, isPlayerReady]);
-
-    // Sync P2P native video Play/Pause — only once the element is ready with a valid src
-    useEffect(() => {
-        if (!p2pVideoFile || !p2pVideoRef.current || !isPlayerReady) return;
-
-        const video = p2pVideoRef.current;
+        if (!remoteStream || !webrtcVideoRef.current || !isPlayerReady) return;
+        const video = webrtcVideoRef.current;
         if (videoState.isPlaying) {
-            // Guard against AbortError: check readyState before calling play()
-            if (video.readyState >= 2) { // HAVE_CURRENT_DATA or better
-                video.play().catch(e => console.warn('P2P play blocked:', e));
-            }
+            video.play().catch(() => { });
         } else {
-            // Only pause if we're not in the middle of a seek (prevents oscillation)
             if (!isSeekingRef.current) video.pause();
         }
-    }, [videoState.isPlaying, p2pVideoFile, isPlayerReady]);
+    }, [videoState.isPlaying, remoteStream, isPlayerReady]);
 
-    // ─── 3. Drift correction (sync progress to viewers) ───────────────────────
+    // ─── 4. WebRTC viewer: drift correction ──────────────────────────────────
     useEffect(() => {
-        if (!isPlayerReady || isPrivileged) return;
+        if (!isPlayerReady || isPrivileged || !remoteStream || !webrtcVideoRef.current) return;
         const stateTime = videoState.playedSeconds || 0;
-
-        let internalTime = 0;
-        if (p2pFileRef.current && p2pVideoRef.current) {
-            internalTime = p2pVideoRef.current.currentTime || 0;
-        } else if (playerRef.current) {
-            internalTime = playerRef.current.getCurrentTime() || 0;
-        } else {
-            return;
-        }
-
+        const internalTime = webrtcVideoRef.current.currentTime || 0;
         if (Math.abs(internalTime - stateTime) > DRIFT_THRESHOLD) {
-            if (p2pFileRef.current && p2pVideoRef.current) {
-                p2pVideoRef.current.currentTime = stateTime;
-            } else if (playerRef.current) {
-                playerRef.current.seekTo(stateTime, 'seconds');
-            }
+            webrtcVideoRef.current.currentTime = stateTime;
         }
-    }, [videoState.playedSeconds, videoState.updatedAt, isPlayerReady, isPrivileged, p2pVideoFile]);
+    }, [videoState.playedSeconds, videoState.updatedAt, isPlayerReady, isPrivileged, remoteStream]);
+
 
     // ─── 4. ReactPlayer Events (Host & URL Viewers) ───────────────────────────
     const handleReady = useCallback(() => {
@@ -294,11 +167,10 @@ const VideoPlayer = () => {
         // Only run if theme is adaptive and player is ready
         if (theme !== 'adaptive' || !isPlayerReady) return;
 
+        const internal = webrtcVideoRef.current || playerRef.current?.getInternalPlayer?.('video');
+
         const interval = setInterval(() => {
             try {
-                const internal = p2pFileRef.current ? p2pVideoRef.current : playerRef.current?.getInternalPlayer?.('video');
-
-                // Only works for actual HTMLVideoElements (CORS might block external sources like YouTube, but we try anyway)
                 if (internal instanceof HTMLVideoElement && internal.videoWidth) {
                     const canvas = document.createElement('canvas');
                     canvas.width = 1;
@@ -306,47 +178,43 @@ const VideoPlayer = () => {
                     const ctx = canvas.getContext('2d', { willReadFrequently: true });
                     ctx.drawImage(internal, 0, 0, 1, 1);
                     const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
-
-                    // Only update if it's not purely black or transparent (often means blocked by CORS)
                     if (r > 10 || g > 10 || b > 10) {
                         setAdaptiveColor(`rgba(${r}, ${g}, ${b}, 0.5)`);
                     }
                 }
-            } catch (err) {
-                // Usually a CORS error (Tainted canvas) -> Do nothing, adaptive won't work for this source
-            }
-        }, 5000); // Check every 5s
+            } catch (_) { }
+        }, 5000);
 
         return () => clearInterval(interval);
-    }, [theme, isPlayerReady, p2pVideoFile, setAdaptiveColor]);
+    }, [theme, isPlayerReady, remoteStream, setAdaptiveColor, isHostStreaming]);
 
     // ─── 5. Uploads & Controls ────────────────────────────────────────────────
     const handleLoad = (e) => {
         e.preventDefault();
         if (!isPrivileged || !inputUrl.trim()) return;
-        setLocalStreamUrl('');
         setPlayerError(null);
+        // If host is currently streaming a local file, stop it first
+        if (isHostStreaming) stopLocalStream();
         loadVideo(inputUrl.trim());
         setInputUrl('');
     };
 
-    const handleFileUpload = (e) => {
+    const handleFileUpload = async (e) => {
         const file = e.target.files[0];
         if (!file || !isPrivileged) return;
         e.target.value = '';
         setPlayerError(null);
+        setLocalFileName(file.name);
 
-        const blobUrl = URL.createObjectURL(file);
-        setLocalStreamUrl(blobUrl);
-        setTorrentProgress(1);
-
-        toast.loading('Seeding video to public swap...', { id: 'seed-toast' });
-        const client = getTorrentClient();
-        client.seed(file, { announce: PUBLIC_TRACKERS }, (torrent) => {
-            toast.success('Viewers can now stream from public trackers!', { id: 'seed-toast' });
-            console.log('Seeding via public trackers. Magnet:', torrent.magnetURI);
-            loadVideo('', torrent.magnetURI);
-        });
+        const loadingToast = toast.loading(`Starting stream: ${file.name}`, { id: 'webrtc-toast' });
+        try {
+            await startLocalStream(file);
+            toast.success('📡 Streaming to viewers via WebRTC!', { id: 'webrtc-toast' });
+        } catch (err) {
+            console.error('WebRTC startLocalStream failed:', err);
+            toast.error(`Stream failed: ${err.message}`, { id: 'webrtc-toast' });
+            setLocalFileName('');
+        }
     };
 
     const handleSubtitleUpload = (e) => {
@@ -443,23 +311,33 @@ const VideoPlayer = () => {
             {/* ── Control Bar (Host/Mod only) ─────────────────────────── */}
             {isPrivileged && (
                 <div className="flex gap-2 flex-shrink-0">
-                    <form onSubmit={handleLoad} className="flex gap-2 flex-1">
-                        <div className="relative flex-1">
-                            <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={16} />
-                            <input
-                                type="text"
-                                value={inputUrl}
-                                onChange={e => setInputUrl(e.target.value)}
-                                placeholder="YouTube, Vimeo, Spotify URL, or direct video link..."
-                                className="w-full rounded-xl py-2 pl-10 pr-4 text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all"
-                                style={{ background: 'var(--panel-bg)', border: '1px solid var(--border-color)', color: 'var(--text-color)' }}
-                            />
+                    {/* Show streaming indicator + stop button when host is streaming a local file */}
+                    {isWebRTCHost ? (
+                        <div className="flex items-center gap-2 flex-1 px-3 py-2 rounded-xl bg-green-500/10 border border-green-500/30">
+                            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                            <span className="text-xs text-green-300 font-medium flex-1 truncate">Streaming: {localFileName}</span>
+                            <button onClick={stopLocalStream} className="flex items-center gap-1.5 px-3 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/30 rounded-lg text-xs transition-colors">
+                                <StopCircle size={13} /> Stop
+                            </button>
                         </div>
-                        <button type="submit" disabled={!inputUrl.trim()} className="px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white rounded-xl text-sm font-medium transition-colors">Load</button>
-                        <button type="button" disabled={!inputUrl.trim()} onClick={() => { addToQueue(inputUrl.trim(), '', inputUrl.trim()); toast.success('Added to queue'); setInputUrl(''); }} className="px-3 py-2 text-gray-300 border border-white/10 rounded-xl text-sm font-medium flex items-center gap-1.5 hover:bg-white/5 transition-colors" style={{ background: 'var(--panel-bg)' }}><Plus size={14} /> Queue</button>
-                    </form>
+                    ) : (
+                        <form onSubmit={handleLoad} className="flex gap-2 flex-1">
+                            <div className="relative flex-1">
+                                <input
+                                    type="text"
+                                    value={inputUrl}
+                                    onChange={e => setInputUrl(e.target.value)}
+                                    placeholder="YouTube, Vimeo, Spotify URL, or video link..."
+                                    className="w-full rounded-xl py-2 pl-4 pr-4 text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all"
+                                    style={{ background: 'var(--panel-bg)', border: '1px solid var(--border-color)', color: 'var(--text-color)' }}
+                                />
+                            </div>
+                            <button type="submit" disabled={!inputUrl.trim()} className="px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white rounded-xl text-sm font-medium transition-colors">Load</button>
+                            <button type="button" disabled={!inputUrl.trim()} onClick={() => { addToQueue(inputUrl.trim(), '', inputUrl.trim()); toast.success('Added to queue'); setInputUrl(''); }} className="px-3 py-2 text-gray-300 border border-white/10 rounded-xl text-sm font-medium flex items-center gap-1.5 hover:bg-white/5 transition-colors" style={{ background: 'var(--panel-bg)' }}><Plus size={14} /> Queue</button>
+                        </form>
+                    )}
                     <button type="button" onClick={() => fileInputRef.current?.click()} className="px-3 py-2 text-gray-300 border border-white/10 rounded-xl text-sm font-medium flex items-center gap-1.5 hover:bg-white/5 transition-colors" style={{ background: 'var(--panel-bg)' }}><Upload size={16} /> File</button>
-                    <input type="file" ref={fileInputRef} className="hidden" accept="video/*" onChange={handleFileUpload} />
+                    <input type="file" ref={fileInputRef} className="hidden" accept="video/*,audio/*" onChange={handleFileUpload} />
                 </div>
             )}
 
@@ -500,33 +378,25 @@ const VideoPlayer = () => {
                     ) : (
                         <motion.div key="player" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 w-full h-full">
 
-                            {/* Viewer P2P Loading Spinner */}
-                            {videoState.magnetURI && !localStreamUrl && !playerError && !isPlayerReady && (
+                            {/* Viewer: WebRTC connecting spinner */}
+                            {isWebRTCViewer && !isPlayerReady && !playerError && (
                                 <div className="absolute inset-0 flex flex-col items-center justify-center z-10 bg-black/90 text-center p-6">
                                     <div className="w-16 h-16 rounded-full border-4 border-purple-500 border-t-transparent animate-spin mb-6" />
-                                    <h2 className="text-lg font-semibold mb-1 text-gray-200">Connecting to P2P Swarm</h2>
-                                    <p className="text-gray-400 text-sm mb-4">Buffering stream from host...</p>
-                                    <div className="w-48 h-2 bg-white/10 rounded-full overflow-hidden">
-                                        <div className="h-full bg-purple-500 transition-all" style={{ width: `${Math.max(torrentProgress * 100, 5)}%` }} />
-                                    </div>
-                                    <p className="text-xs text-gray-500 mt-2">{Math.round(torrentProgress * 100)}% active</p>
+                                    <h2 className="text-lg font-semibold mb-1 text-gray-200">Connecting to Host</h2>
+                                    <p className="text-gray-400 text-sm">Waiting for WebRTC stream from host...</p>
                                 </div>
                             )}
 
-                            {/* Viewer P2P Native Streaming Player */}
-                            {isP2PViewer && (
+                            {/* Viewer: WebRTC remote stream video */}
+                            {isWebRTCViewer && (
                                 <div className={`absolute inset-0 bg-black flex flex-col justify-center items-center ${isPlayerReady ? 'opacity-100' : 'opacity-0'}`}>
                                     <video
-                                        ref={p2pVideoRef}
-                                        className="w-full h-full object-contain z-0"
-                                        controls={false} // Viewers get no native controls
+                                        ref={webrtcVideoRef}
+                                        className="w-full h-full object-contain"
+                                        autoPlay
                                         playsInline
-                                    >
-                                        {/* Subtitle tracks for manual uploads */}
-                                        {subtitleTracks.filter(t => !t.isNative).map(t => (
-                                            <track key={t.index} kind="subtitles" src={t.src} srcLang={t.srcLang} label={t.label} default={t.default} />
-                                        ))}
-                                    </video>
+                                        controls={false}
+                                    />
                                 </div>
                             )}
 

@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { socket } from '../socket';
+import { HostStreamer, ViewerReceiver } from '../services/WebRTCService';
 import toast from 'react-hot-toast';
 
 const RoomContext = createContext();
@@ -23,6 +24,14 @@ export const RoomProvider = ({ children }) => {
     });
     const [queue, setQueue] = useState([]);
     const isKicked = useRef(false);
+
+    // ── WebRTC local video streaming ──────────────────────────────────────────
+    const [remoteStream, setRemoteStream] = useState(null);   // Viewer side: incoming MediaStream
+    const [isHostStreaming, setIsHostStreaming] = useState(false); // Host side: currently streaming a local file
+    const hostStreamerRef = useRef(null);   // HostStreamer instance (host only)
+    const viewerReceiverRef = useRef(null); // ViewerReceiver instance (viewer only)
+    // Store hostSocketId so viewer can relay ICE back to the right peer
+    const hostSocketIdRef = useRef(null);
 
     useEffect(() => {
         function onConnect() { setIsConnected(true); }
@@ -122,11 +131,71 @@ export const RoomProvider = ({ children }) => {
         socket.on('video_seeked', onVideoSeeked);
         socket.on('queue_updated', onQueueUpdated);
 
+        // ── WebRTC signaling ─────────────────────────────────────────────────
+        // Viewer receives offer from host
+        async function onWebRTCOffer({ fromId, sdp }) {
+            hostSocketIdRef.current = fromId;
+            const receiver = new ViewerReceiver(socket, null);
+            viewerReceiverRef.current = receiver;
+            receiver.onStream((stream) => {
+                setRemoteStream(stream);
+                toast('📡 Local file stream connected!', { duration: 3000, icon: '🎬' });
+            });
+            await receiver.handleOffer(fromId, sdp);
+        }
+
+        // Host receives answer from a viewer
+        async function onWebRTCAnswer({ fromId, sdp }) {
+            await hostStreamerRef.current?.handleAnswer(fromId, sdp);
+        }
+
+        // Either side receives ICE candidate from the other
+        async function onWebRTCIce({ fromId, candidate }) {
+            if (hostStreamerRef.current) {
+                // We are the host — candidate is from a viewer
+                await hostStreamerRef.current.handleIceCandidate(fromId, candidate);
+            } else if (viewerReceiverRef.current) {
+                // We are a viewer — candidate is from the host
+                await viewerReceiverRef.current.handleIceCandidate(candidate);
+            }
+        }
+
+        // Viewer notified that host started streaming
+        async function onWebRTCStreamReady({ hostId }) {
+            // The host will send us an offer shortly, nothing to do yet
+            hostSocketIdRef.current = hostId;
+        }
+
+        // Viewer notified that host stopped the stream
+        function onWebRTCStreamStopped() {
+            viewerReceiverRef.current?.stop();
+            viewerReceiverRef.current = null;
+            setRemoteStream(null);
+            toast('Host stopped the local stream.', { icon: '⏹️', duration: 3000 });
+        }
+
+        // When a new viewer joins, if we are the host and streaming, send them an offer
+        const origOnUserJoined = onUserJoined;
+        socket.off('user_joined', origOnUserJoined); // reattach with addon below
+        function onUserJoinedWithStream(newUser) {
+            origOnUserJoined(newUser);
+            if (hostStreamerRef.current) {
+                hostStreamerRef.current.addViewer(newUser.id);
+            }
+        }
+        socket.on('user_joined', onUserJoinedWithStream);
+
+        socket.on('webrtc_offer', onWebRTCOffer);
+        socket.on('webrtc_answer', onWebRTCAnswer);
+        socket.on('webrtc_ice_candidate', onWebRTCIce);
+        socket.on('webrtc_stream_ready', onWebRTCStreamReady);
+        socket.on('webrtc_stream_stopped', onWebRTCStreamStopped);
+
         return () => {
             socket.off('connect', onConnect);
             socket.off('disconnect', onDisconnect);
             socket.off('room_joined', onRoomJoined);
-            socket.off('user_joined', onUserJoined);
+            socket.off('user_joined');
             socket.off('user_left', onUserLeft);
             socket.off('receive_message', onReceiveMessage);
             socket.off('role_updated', onRoleUpdated);
@@ -137,6 +206,11 @@ export const RoomProvider = ({ children }) => {
             socket.off('video_progress', onVideoProgress);
             socket.off('video_seeked', onVideoSeeked);
             socket.off('queue_updated', onQueueUpdated);
+            socket.off('webrtc_offer', onWebRTCOffer);
+            socket.off('webrtc_answer', onWebRTCAnswer);
+            socket.off('webrtc_ice_candidate', onWebRTCIce);
+            socket.off('webrtc_stream_ready', onWebRTCStreamReady);
+            socket.off('webrtc_stream_stopped', onWebRTCStreamStopped);
         };
     }, []);
 
@@ -273,6 +347,48 @@ export const RoomProvider = ({ children }) => {
         socket.emit('play_next', { roomId });
     }, [roomId]);
 
+    // ── WebRTC: start streaming a local file to all viewers ──────────────────
+    const startLocalStream = useCallback(async (file) => {
+        if (!file || !roomId) return;
+        // Stop any existing stream first
+        if (hostStreamerRef.current) {
+            hostStreamerRef.current.stop();
+            hostStreamerRef.current = null;
+        }
+
+        const viewerIds = users
+            .filter(u => u.id !== socket.id && u.connected !== false)
+            .map(u => u.id);
+
+        const streamer = new HostStreamer(socket, roomId);
+        hostStreamerRef.current = streamer;
+
+        try {
+            const sourceVideo = await streamer.start(file, viewerIds);
+            setIsHostStreaming(true);
+            // Tell all viewers a stream is starting
+            socket.emit('webrtc_stream_ready', { roomId });
+            // Also tell the server the current video state so viewers see "local file" title
+            socket.emit('change_video', { roomId, url: '', magnetURI: 'local', isPlaying: true, playedSeconds: 0, updatedAt: Date.now() });
+            return sourceVideo; // VideoPlayer uses this to control play/pause/seek
+        } catch (err) {
+            hostStreamerRef.current = null;
+            setIsHostStreaming(false);
+            throw err;
+        }
+    }, [roomId, users]);
+
+    const stopLocalStream = useCallback(() => {
+        hostStreamerRef.current?.stop();
+        hostStreamerRef.current = null;
+        setIsHostStreaming(false);
+        socket.emit('webrtc_stream_stopped', { roomId });
+        socket.emit('change_video', { roomId, url: '', magnetURI: '', isPlaying: false, playedSeconds: 0, updatedAt: Date.now() });
+    }, [roomId]);
+
+    // Expose streamer so VideoPlayer can control playback (seek/play/pause)
+    const getHostStreamer = useCallback(() => hostStreamerRef.current, []);
+
     return (
         <RoomContext.Provider value={{
             isRestoringSession,
@@ -298,6 +414,12 @@ export const RoomProvider = ({ children }) => {
             removeFromQueue,
             playNext,
             syncProgress,
+            // WebRTC local streaming
+            remoteStream,
+            isHostStreaming,
+            startLocalStream,
+            stopLocalStream,
+            getHostStreamer,
         }}>
             {children}
         </RoomContext.Provider>

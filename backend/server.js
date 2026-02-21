@@ -245,7 +245,42 @@ io.on('connection', (socket) => {
         }
     });
 
+    // --- WEBRTC SIGNALING RELAY (local video streaming) ---
+    // These events carry only tiny SDP/ICE JSON payloads — no video data.
+
+    socket.on('webrtc_offer', ({ roomId, targetId, sdp }) => {
+        // Host → specific viewer: "here is my stream offer"
+        socket.to(targetId).emit('webrtc_offer', { fromId: socket.id, sdp });
+    });
+
+    socket.on('webrtc_answer', ({ roomId, targetId, sdp }) => {
+        // Viewer → host: "I accept your offer"
+        socket.to(targetId).emit('webrtc_answer', { fromId: socket.id, sdp });
+    });
+
+    socket.on('webrtc_ice_candidate', ({ roomId, targetId, candidate }) => {
+        // Relay ICE candidate from either side to the other
+        socket.to(targetId).emit('webrtc_ice_candidate', { fromId: socket.id, candidate });
+    });
+
+    socket.on('webrtc_stream_ready', ({ roomId }) => {
+        // Host broadcasts: "I am now streaming a local file, viewers should expect an offer"
+        const sender = getUserInRoom(socket.id, roomId);
+        if (sender && sender.role === 'Host') {
+            socket.to(roomId).emit('webrtc_stream_ready', { hostId: socket.id });
+        }
+    });
+
+    socket.on('webrtc_stream_stopped', ({ roomId }) => {
+        // Host broadcasts: "I stopped streaming the local file"
+        const sender = getUserInRoom(socket.id, roomId);
+        if (sender && sender.role === 'Host') {
+            socket.to(roomId).emit('webrtc_stream_stopped');
+        }
+    });
+
     // --- DISCONNECT HANDLING ---
+
 
     const handleDisconnect = () => {
         const roomId = socket.roomId;
