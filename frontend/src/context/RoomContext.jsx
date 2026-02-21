@@ -347,9 +347,9 @@ export const RoomProvider = ({ children }) => {
         socket.emit('play_next', { roomId });
     }, [roomId]);
 
-    // ── WebRTC: start streaming a local file to all viewers ──────────────────
-    const startLocalStream = useCallback(async (file) => {
-        if (!file || !roomId) return;
+    // ── WebRTC: start streaming a visible <video> element to all viewers ─────────
+    const startLocalStream = useCallback(async (videoEl) => {
+        if (!videoEl || !roomId) return;
         // Stop any existing stream first
         if (hostStreamerRef.current) {
             hostStreamerRef.current.stop();
@@ -364,13 +364,10 @@ export const RoomProvider = ({ children }) => {
         hostStreamerRef.current = streamer;
 
         try {
-            const sourceVideo = await streamer.start(file, viewerIds);
+            await streamer.start(videoEl, viewerIds);
             setIsHostStreaming(true);
-            // Tell all viewers a stream is starting
             socket.emit('webrtc_stream_ready', { roomId });
-            // Also tell the server the current video state so viewers see "local file" title
             socket.emit('change_video', { roomId, url: '', magnetURI: 'local', isPlaying: true, playedSeconds: 0, updatedAt: Date.now() });
-            return sourceVideo; // VideoPlayer uses this to control play/pause/seek
         } catch (err) {
             hostStreamerRef.current = null;
             setIsHostStreaming(false);

@@ -28,40 +28,29 @@ export class HostStreamer {
     }
 
     /**
-     * Load a local File, capture its stream, and offer to all current viewers.
-     * @param {File} file
+     * Attach to an already-rendered <video> element and start streaming it to viewers.
+     * The VideoPlayer manages the element's src/playback; we just capture its stream.
+     * @param {HTMLVideoElement} videoEl  - the visible <video> rendered by VideoPlayer
      * @param {string[]} viewerSocketIds
-     * @returns {HTMLVideoElement} the hidden source video (host watches this)
      */
-    async start(file, viewerSocketIds) {
-        // Create a hidden video element to drive the stream
-        const video = document.createElement('video');
-        video.style.display = 'none';
-        video.muted = false; // host hears audio locally
-        document.body.appendChild(video);
+    async start(videoEl, viewerSocketIds) {
+        if (!videoEl) throw new Error('videoEl is required');
 
-        this.blobUrl = URL.createObjectURL(file);
-        video.src = this.blobUrl;
-        await video.play().catch(() => { }); // autoplay may be blocked
+        this.sourceVideo = videoEl;
 
         // Capture the playing video as a MediaStream
-        // captureStream() is supported in Chrome, Edge, Firefox
-        if (typeof video.captureStream === 'function') {
-            this.stream = video.captureStream();
-        } else if (typeof video.mozCaptureStream === 'function') {
-            this.stream = video.mozCaptureStream();
+        if (typeof videoEl.captureStream === 'function') {
+            this.stream = videoEl.captureStream();
+        } else if (typeof videoEl.mozCaptureStream === 'function') {
+            this.stream = videoEl.mozCaptureStream();
         } else {
-            throw new Error('captureStream() not supported in this browser.');
+            throw new Error('captureStream() is not supported in this browser.');
         }
 
-        this.sourceVideo = video;
-
-        // Offer to all current viewers in the room
+        // Offer to all current viewers
         for (const viewerId of viewerSocketIds) {
             await this._createOffer(viewerId);
         }
-
-        return video;
     }
 
     /** Call when a new viewer joins while host is already streaming */
@@ -156,15 +145,8 @@ export class HostStreamer {
             this.stream.getTracks().forEach(t => t.stop());
             this.stream = null;
         }
-        if (this.sourceVideo) {
-            this.sourceVideo.pause();
-            this.sourceVideo.remove();
-            this.sourceVideo = null;
-        }
-        if (this.blobUrl) {
-            URL.revokeObjectURL(this.blobUrl);
-            this.blobUrl = null;
-        }
+        // NOTE: sourceVideo and blobUrl are owned by VideoPlayer — don't touch them here
+        this.sourceVideo = null;
     }
 }
 
