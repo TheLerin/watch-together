@@ -40,6 +40,15 @@ const VideoPlayer = () => {
 
     const isPrivileged = currentUser?.role === 'Host' || currentUser?.role === 'Moderator';
 
+    // ─── Render Helpers (Required by hooks & JSX) ─────────────────────────
+    const playerUrl = videoState.url || null;
+    const isWebRTCViewer = !!remoteStream && !isPrivileged;
+    const isWebRTCHost = isHostStreaming && isPrivileged;
+    const showHostPreview = isPrivileged && !!hostBlobUrl;  // show host's local video
+    // hasContent: URL video, or WebRTC stream (host/viewer), or viewer waiting for stream
+    const hasContent = !!(playerUrl || isWebRTCViewer || showHostPreview
+        || (videoState.magnetURI === 'local' && !isPrivileged));
+
     // Seek guard: true while user is scrubbing — prevents onPlay/onPause oscillation
     const isSeekingRef = useRef(false);
     const seekEndTimerRef = useRef(null);
@@ -272,14 +281,6 @@ const VideoPlayer = () => {
         toast.success(`Loaded ${files.length} subtitle track(s)`, { icon: '🗒️' });
     };
 
-    // Render helpers
-    const playerUrl = videoState.url || null;
-    const isWebRTCViewer = !!remoteStream && !isPrivileged;
-    const isWebRTCHost = isHostStreaming && isPrivileged;
-    const showHostPreview = isPrivileged && !!hostBlobUrl;  // show host's local video
-    // hasContent: URL video, or WebRTC stream (host/viewer), or viewer waiting for stream
-    const hasContent = !!(playerUrl || isWebRTCViewer || showHostPreview
-        || (videoState.magnetURI === 'local' && !isPrivileged));
 
     // Spotify link parsing
     let isSpotify = false;
