@@ -8,6 +8,7 @@ const RoomContext = createContext();
 export const useRoom = () => useContext(RoomContext);
 
 export const RoomProvider = ({ children }) => {
+    const [isRestoringSession, setIsRestoringSession] = useState(true);
     const [isConnected, setIsConnected] = useState(false);
     const [currentUser, setCurrentUser] = useState(null);
     const [users, setUsers] = useState([]);
@@ -35,6 +36,7 @@ export const RoomProvider = ({ children }) => {
             if (initialVideoState) setVideoState(initialVideoState);
             if (initialQueue) setQueue(initialQueue);
             setMessages(chatHistory || []);
+            setIsRestoringSession(false);
         }
         function onUserJoined(newUser) {
             setUsers(prev => {
@@ -141,6 +143,19 @@ export const RoomProvider = ({ children }) => {
     // --- Auto-reconnect from localStorage ---
     useEffect(() => {
         const savedSession = localStorage.getItem('watchTogetherSession');
+        if (!savedSession) {
+            setIsRestoringSession(false);
+            return;
+        }
+
+        // If there's a session but socket isn't connected, we need to proactively connect
+        if (!socket.connected) {
+            socket.connect();
+        }
+    }, []);
+
+    useEffect(() => {
+        const savedSession = localStorage.getItem('watchTogetherSession');
         if (savedSession && isConnected && !currentUser) {
             try {
                 let sessionData = JSON.parse(savedSession);
@@ -154,9 +169,12 @@ export const RoomProvider = ({ children }) => {
                     }
                     setRoomId(savedRoomId);
                     socket.emit('join_room', { roomId: savedRoomId, nickname, userId });
+                } else {
+                    setIsRestoringSession(false);
                 }
             } catch (e) {
                 console.error('Failed to parse saved session', e);
+                setIsRestoringSession(false);
             }
         }
     }, [isConnected, currentUser]);
@@ -257,6 +275,7 @@ export const RoomProvider = ({ children }) => {
 
     return (
         <RoomContext.Provider value={{
+            isRestoringSession,
             isConnected,
             currentUser,
             users,

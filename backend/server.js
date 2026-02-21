@@ -18,26 +18,7 @@ const io = new Server(server, {
 });
 
 // ── Local BitTorrent Tracker ────────────────────────────────────────────────
-// bittorrent-tracker is ESM-only, use dynamic import.
-// We attach it to the SAME http.Server so it works on Render's single port.
-import('bittorrent-tracker').then(({ Server: Tracker }) => {
-    const tracker = new Tracker({
-        udp: false,
-        http: false,
-        ws: true,
-        stats: false,
-    });
-    tracker.attachHttpServer(server); // shares port with Express
-    console.log('BitTorrent tracker attached to main HTTP server (same port)');
-    tracker.on('error', (err) => {
-        // Ignore 'bad params' from Socket.IO upgrade handshakes
-        if (!err.message?.includes('bad params')) {
-            console.error('Tracker error:', err.message);
-        }
-    });
-}).catch(err => {
-    console.warn('Could not start local tracker (non-fatal):', err.message);
-});
+// Removed: We now use public WebTorrent trackers to support Vercel/Render serverless.
 
 // In-memory store
 // rooms[roomId] = { users: [], videoState: {...}, queue: [] }

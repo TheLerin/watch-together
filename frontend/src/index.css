@@ -2,16 +2,26 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Default theme variables — set here so the UI is correct on first paint
+   before ThemeContext's useEffect fires. ThemeContext will override these. */
+:root {
+  --bg-color: #09090b;
+  --text-color: #f4f4f5;
+  --panel-bg: rgba(24, 24, 27, 0.6);
+  --border-color: rgba(255, 255, 255, 0.1);
+}
+
 @layer base {
   body {
-    @apply bg-background text-white antialiased overflow-x-hidden;
+    @apply bg-background text-textcolor antialiased overflow-x-hidden transition-colors duration-500;
   }
 }
 
 @layer utilities {
   .glass {
-    background-color: rgba(17, 17, 17, 0.4);
-    @apply backdrop-blur-md border border-white/10 shadow-xl;
+    background-color: var(--panel-bg);
+    border: 1px solid var(--border-color);
+    @apply backdrop-blur-md shadow-xl transition-colors duration-500;
   }
 
   .glass-card {

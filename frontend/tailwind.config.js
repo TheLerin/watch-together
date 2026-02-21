@@ -7,8 +7,10 @@ export default {
   theme: {
     extend: {
       colors: {
-        background: '#0a0a0a',
-        surface: '#111111',
+        background: 'var(--bg-color)',
+        surface: 'var(--panel-bg)',
+        bordercolor: 'var(--border-color)',
+        textcolor: 'var(--text-color)',
       },
       animation: {
         'gradient-x': 'gradient-x 15s ease infinite',
