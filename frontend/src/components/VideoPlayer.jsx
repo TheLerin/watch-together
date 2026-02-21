@@ -12,7 +12,7 @@ const SYNC_INTERVAL_MS = 2000;
 const DRIFT_THRESHOLD = 2;
 
 const VideoPlayer = () => {
-    const { videoState, currentUser, loadVideo, addToQueue, playVideo, pauseVideo, syncProgress,
+    const { videoState, currentUser, loadVideo, addToQueue, playVideo, pauseVideo, syncProgress, seekVideo,
         remoteStream, isHostStreaming, startLocalStream, stopLocalStream, getHostStreamer } = useRoom();
     const { theme, setAdaptiveColor } = useTheme();
 
@@ -78,32 +78,40 @@ const VideoPlayer = () => {
         }
     }, [videoState.isPlaying, remoteStream, isPlayerReady]);
 
-    // ─── 4. WebRTC viewer: drift correction ──────────────────────────────────
+    // ─── 4. ReactPlayer viewer: drift correction ──────────────────────────────
     useEffect(() => {
-        if (!isPlayerReady || isPrivileged || !remoteStream || !webrtcVideoRef.current) return;
+        if (!isPlayerReady || isPrivileged || remoteStream || !playerUrl || !playerRef.current) return;
         const stateTime = videoState.playedSeconds || 0;
-        const internalTime = webrtcVideoRef.current.currentTime || 0;
+        const internalTime = playerRef.current.getCurrentTime() || 0;
         if (Math.abs(internalTime - stateTime) > DRIFT_THRESHOLD) {
-            webrtcVideoRef.current.currentTime = stateTime;
+            playerRef.current.seekTo(stateTime, 'seconds');
         }
-    }, [videoState.playedSeconds, videoState.updatedAt, isPlayerReady, isPrivileged, remoteStream]);
-
+    }, [videoState.playedSeconds, videoState.updatedAt, isPlayerReady, isPrivileged, remoteStream, playerUrl]);
 
     // ─── 5a. Start WebRTC captureStream once host video element is rendered ───────
     useEffect(() => {
         if (!hostBlobUrl || !hostVideoRef.current || !isPrivileged) return;
-        // Video element just rendered with the blob URL — start the WebRTC stream
         const el = hostVideoRef.current;
-        toast.loading('Starting stream...', { id: 'webrtc-toast' });
-        startLocalStream(el)
-            .then(() => toast.success('\ud83d\udce1 Streaming to viewers via WebRTC!', { id: 'webrtc-toast' }))
-            .catch(err => {
-                toast.error(`Stream failed: ${err.message}`, { id: 'webrtc-toast' });
-                setHostBlobUrl('');
-            });
-        // Note: startLocalStream only needs to run once per blob URL
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [hostBlobUrl]);
+
+        const startStream = () => {
+            if (el.dataset.streaming === 'true') return;
+            el.dataset.streaming = 'true';
+            toast.loading('Starting stream...', { id: 'webrtc-toast' });
+            startLocalStream(el)
+                .then(() => toast.success('\ud83d\udce1 Streaming to viewers via WebRTC!', { id: 'webrtc-toast' }))
+                .catch(err => {
+                    toast.error(`Stream failed: ${err.message}`, { id: 'webrtc-toast' });
+                    setHostBlobUrl('');
+                });
+        };
+
+        if (el.readyState >= 1) { // HAVE_METADATA or better
+            startStream();
+        } else {
+            el.addEventListener('loadedmetadata', startStream, { once: true });
+        }
+
+    }, [hostBlobUrl, isPrivileged, startLocalStream]);
 
     // ─── Host video cleanup on unmount ─────────────────────────────────────
     useEffect(() => {
@@ -332,30 +340,34 @@ const VideoPlayer = () => {
         <div className="flex flex-col h-full w-full gap-2">
             {/* ── Control Bar (Host/Mod only) ─────────────────────────── */}
             {isPrivileged && (
-                <div className="flex gap-2 flex-shrink-0 flex-wrap">
-                    <form onSubmit={handleLoad} className="flex gap-2 flex-1 min-w-0">
-                        <div className="relative flex-1 min-w-0">
-                            <input
-                                type="text"
-                                value={inputUrl}
-                                onChange={e => setInputUrl(e.target.value)}
-                                placeholder="YouTube, Vimeo, Spotify URL, or video link..."
-                                className="w-full rounded-xl py-2 pl-4 pr-4 text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all"
-                                style={{ background: 'var(--panel-bg)', border: '1px solid var(--border-color)', color: 'var(--text-color)' }}
-                            />
-                        </div>
-                        <button type="submit" disabled={!inputUrl.trim()} className="px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white rounded-xl text-sm font-medium transition-colors">Load</button>
-                        <button type="button" disabled={!inputUrl.trim()} onClick={() => { addToQueue(inputUrl.trim(), '', inputUrl.trim()); toast.success('Added to queue'); setInputUrl(''); }} className="px-3 py-2 text-gray-300 border border-white/10 rounded-xl text-sm font-medium flex items-center gap-1.5 hover:bg-white/5 transition-colors" style={{ background: 'var(--panel-bg)' }}><Plus size={14} /> Queue</button>
-                    </form>
-                    <button type="button" onClick={() => fileInputRef.current?.click()} className="px-3 py-2 text-gray-300 border border-white/10 rounded-xl text-sm font-medium flex items-center gap-1.5 hover:bg-white/5 transition-colors" style={{ background: 'var(--panel-bg)' }}><Upload size={16} /> File</button>
-                    <input type="file" ref={fileInputRef} className="hidden" accept="video/*,audio/*" onChange={handleFileUpload} />
-                    {/* Streaming indicator pill */}
+                <div className="flex flex-col gap-2 flex-shrink-0">
+                    <div className="flex gap-2 w-full">
+                        <form onSubmit={handleLoad} className="flex gap-2 flex-1">
+                            <div className="relative flex-1">
+                                <input
+                                    type="text"
+                                    value={inputUrl}
+                                    onChange={e => setInputUrl(e.target.value)}
+                                    placeholder="YouTube, Vimeo, Spotify URL, or video link..."
+                                    className="w-full rounded-xl py-2 pl-4 pr-4 text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all"
+                                    style={{ background: 'var(--panel-bg)', border: '1px solid var(--border-color)', color: 'var(--text-color)' }}
+                                />
+                            </div>
+                            <button type="submit" disabled={!inputUrl.trim()} className="px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white rounded-xl text-sm font-medium transition-colors">Load</button>
+                            <button type="button" disabled={!inputUrl.trim()} onClick={() => { addToQueue(inputUrl.trim(), '', inputUrl.trim()); toast.success('Added to queue'); setInputUrl(''); }} className="px-3 py-2 text-gray-300 border border-white/10 rounded-xl text-sm font-medium flex items-center gap-1.5 hover:bg-white/5 transition-colors" style={{ background: 'var(--panel-bg)' }}><Plus size={14} /> Queue</button>
+                        </form>
+                        <button type="button" onClick={() => fileInputRef.current?.click()} className="px-3 py-2 text-gray-300 border border-white/10 rounded-xl text-sm font-medium flex items-center gap-1.5 hover:bg-white/5 transition-colors" style={{ background: 'var(--panel-bg)' }}><Upload size={16} /> File</button>
+                        <input type="file" ref={fileInputRef} className="hidden" accept="video/*,audio/*" onChange={handleFileUpload} />
+                    </div>
+                    {/* Streaming indicator pill (shows right below input when streaming) */}
                     {isWebRTCHost && (
-                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-500/10 border border-green-500/30">
-                            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                            <span className="text-xs text-green-300 font-medium">Live</span>
-                            <button onClick={handleStopStream} className="ml-1 flex items-center gap-1 px-2 py-0.5 bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/30 rounded-lg text-xs transition-colors">
-                                <StopCircle size={11} /> Stop
+                        <div className="flex justify-between items-center px-4 py-2 rounded-xl bg-green-500/10 border border-green-500/30">
+                            <div className="flex items-center gap-2">
+                                <div className="w-2.5 h-2.5 rounded-full bg-green-400 animate-pulse" />
+                                <span className="text-sm text-green-300 font-medium">Live Streaming Local File to Viewers</span>
+                            </div>
+                            <button onClick={handleStopStream} className="flex items-center gap-1 px-3 py-1 bg-red-500/20 hover:bg-red-500/30 text-red-300 border border-red-500/30 rounded-lg text-xs font-medium transition-colors">
+                                <StopCircle size={14} /> Stop Stream
                             </button>
                         </div>
                     )}
@@ -508,7 +520,7 @@ const VideoPlayer = () => {
                                             isSeekingRef.current = false;
                                             const t = playerRef.current?.getCurrentTime?.() || 0;
                                             lastSyncedPosRef.current = t;
-                                            if (isPrivileged) syncProgress(t);
+                                            if (isPrivileged) seekVideo(t);
                                         }, 400);
                                     }}
                                     onError={() => setPlayerError('Could not load video.')}
