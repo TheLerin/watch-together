@@ -205,7 +205,7 @@ const VideoPlayer = () => {
         setPlayerError(null);
         setLocalFileName(file.name);
 
-        const loadingToast = toast.loading(`Starting stream: ${file.name}`, { id: 'webrtc-toast' });
+        toast.loading(`Starting stream: ${file.name}`, { id: 'webrtc-toast' });
         try {
             await startLocalStream(file);
             toast.success('📡 Streaming to viewers via WebRTC!', { id: 'webrtc-toast' });
@@ -240,7 +240,8 @@ const VideoPlayer = () => {
     const playerUrl = videoState.url || null;
     const isWebRTCViewer = !!remoteStream && !isPrivileged;
     const isWebRTCHost = isHostStreaming && isPrivileged;
-    const hasContent = !!(videoState.url || isWebRTCViewer || isWebRTCHost);
+    // hasContent: show player area if there's a URL, a live WebRTC stream, or viewer is waiting for stream (magnetURI=local)
+    const hasContent = !!(videoState.url || isWebRTCViewer || isWebRTCHost || (videoState.magnetURI === 'local' && !isPrivileged));
 
     // Spotify link parsing
     let isSpotify = false;
@@ -357,7 +358,7 @@ const VideoPlayer = () => {
                         </>
                     )}
 
-                    {(videoState.magnetURI || localStreamUrl) && subtitleTracks.length === 0 && audioTracks.length === 0 && isPlayerReady && (
+                    {(isWebRTCHost || isWebRTCViewer) && subtitleTracks.length === 0 && audioTracks.length === 0 && isPlayerReady && (
                         <span className="text-xs text-yellow-500/80 italic hidden sm:block">
                             (Note: Browsers cannot read MKV embedded tracks natively. Please upload subtitles manually).
                         </span>
