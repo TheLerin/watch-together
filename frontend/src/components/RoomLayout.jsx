@@ -107,9 +107,7 @@ const RoomLayout = () => {
             <header className="flex-none h-14 bg-zinc-900/95 border-b border-zinc-800 flex items-center justify-between px-3 sm:px-5 z-40 backdrop-blur-md">
                 <div className="flex items-center gap-3">
                     <button onClick={() => navigate('/')} className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-600 to-blue-500 flex items-center justify-center shadow-lg shadow-purple-600/30">
-                            <Play fill="white" size={14} className="ml-0.5 text-white" />
-                        </div>
+                        <img src="/logo.png" alt="WatchSync" className="w-8 h-8 rounded-lg object-cover shadow-lg shadow-purple-600/30" />
                         <span className="font-bold text-lg text-white hidden sm:block">WatchSync</span>
                     </button>
                     <div className="hidden sm:block w-px h-5 bg-zinc-700" />
