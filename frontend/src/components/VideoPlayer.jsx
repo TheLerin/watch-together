@@ -88,13 +88,19 @@ const VideoPlayer = () => {
         }
     }, [videoState.playedSeconds, videoState.updatedAt, isPlayerReady, isPrivileged, remoteStream, playerUrl]);
 
-    // ─── 5a. Start WebRTC captureStream once host video element is rendered ───────
+    // ─── 5a. Start WebRTC captureStream once host video element actually plays ───────
     useEffect(() => {
         if (!hostBlobUrl || !hostVideoRef.current || !isPrivileged) return;
         const el = hostVideoRef.current;
 
         const startStream = () => {
             if (el.dataset.streaming === 'true') return;
+            // Only capture if we actually have a video size (meaning frames are decoded)
+            if (el.videoWidth === 0 || el.videoHeight === 0) {
+                // Not ready yet, wait a bit
+                setTimeout(startStream, 100);
+                return;
+            }
             el.dataset.streaming = 'true';
             toast.loading('Starting stream...', { id: 'webrtc-toast' });
             startLocalStream(el)
@@ -105,10 +111,12 @@ const VideoPlayer = () => {
                 });
         };
 
-        if (el.readyState >= 1) { // HAVE_METADATA or better
+        // Wait for the video to actually start playing. loadedmetadata isn't enough in some browsers
+        // to guarantee captureStream will grab video tracks.
+        if (!el.paused && el.readyState >= 2) {
             startStream();
         } else {
-            el.addEventListener('loadedmetadata', startStream, { once: true });
+            el.addEventListener('playing', startStream, { once: true });
         }
 
     }, [hostBlobUrl, isPrivileged, startLocalStream]);
@@ -445,6 +453,7 @@ const VideoPlayer = () => {
                                         className="w-full h-full object-contain"
                                         autoPlay
                                         playsInline
+                                        muted // Required for autoPlay policy on most browsers
                                         controls={false}
                                     />
                                 </div>

@@ -47,6 +47,20 @@ export class HostStreamer {
             throw new Error('captureStream() is not supported in this browser.');
         }
 
+        // Wait up to 5 seconds for video tracks to actually appear in the stream
+        // Sometimes captureStream() fires instantly before the browser decoder fully attaches
+        let attempts = 0;
+        while (this.stream.getVideoTracks().length === 0 && attempts < 50) {
+            await new Promise(r => setTimeout(r, 100));
+            attempts++;
+        }
+
+        if (this.stream.getVideoTracks().length === 0) {
+            console.warn('[HostStreamer] Warning: Started stream with no video tracks detected.');
+        } else {
+            console.log('[HostStreamer] Stream started successfully with video tracks.', this.stream.getVideoTracks());
+        }
+
         // Offer to all current viewers
         for (const viewerId of viewerSocketIds) {
             await this._createOffer(viewerId);
@@ -165,8 +179,15 @@ export class ViewerReceiver {
         this.pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
         this.pc.ontrack = (e) => {
+            const stream = e.streams[0];
+            const track = e.track;
+            console.log(`[ViewerReceiver] Received track: ${track.kind} (${track.id})`);
+
+            // Log the overall stream contents
+            console.log(`[ViewerReceiver] Stream now has: ${stream.getVideoTracks().length} video, ${stream.getAudioTracks().length} audio tracks`);
+
             if (this.onStreamCallback) {
-                this.onStreamCallback(e.streams[0]);
+                this.onStreamCallback(stream);
             }
         };
 
