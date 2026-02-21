@@ -129,38 +129,37 @@ const VideoPlayer = () => {
     // Host reports progress
     useEffect(() => {
         if (!isPrivileged) return;
-        if (!playerRef.current && !p2pVideoRef.current) return;
 
         syncIntervalRef.current = setInterval(() => {
-            // Skip syncing while host is actively seeking to avoid feedback loop
             if (isSeekingRef.current) return;
-
-            const t = p2pFileRef.current
-                ? (p2pVideoRef.current?.currentTime || 0)
+            // Host WebRTC stream: get time from the hidden source video via getHostStreamer()
+            const streamer = getHostStreamer();
+            const t = streamer
+                ? streamer.getCurrentTime()
                 : (playerRef.current?.getCurrentTime?.() || 0);
-
             if (t > 0) syncProgress(t);
         }, SYNC_INTERVAL_MS);
 
         return () => clearInterval(syncIntervalRef.current);
-    }, [isPrivileged, syncProgress, p2pVideoFile]);
+    }, [isPrivileged, syncProgress, isHostStreaming, getHostStreamer]);
 
-    // Apply active tracks
+    // Apply active subtitle track
     useEffect(() => {
-        const internal = p2pFileRef.current ? p2pVideoRef.current : playerRef.current?.getInternalPlayer?.();
+        const internal = webrtcVideoRef.current || playerRef.current?.getInternalPlayer?.();
         if (!(internal instanceof HTMLVideoElement) || !internal.textTracks) return;
         [...internal.textTracks].forEach((track, i) => {
             track.mode = i === activeSubtitle ? 'showing' : 'hidden';
         });
-    }, [activeSubtitle, p2pVideoFile]);
+    }, [activeSubtitle, remoteStream]);
 
+    // Apply active audio track
     useEffect(() => {
-        const internal = p2pFileRef.current ? p2pVideoRef.current : playerRef.current?.getInternalPlayer?.();
+        const internal = webrtcVideoRef.current || playerRef.current?.getInternalPlayer?.();
         if (!(internal instanceof HTMLVideoElement) || !internal.audioTracks) return;
         [...internal.audioTracks].forEach((track, i) => {
             track.enabled = i === activeAudio;
         });
-    }, [activeAudio, p2pVideoFile]);
+    }, [activeAudio, remoteStream]);
 
     // ─── Adaptive Color Extraction ────────────────────────────────────────────
     useEffect(() => {
