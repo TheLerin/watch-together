@@ -43,7 +43,7 @@ const LandingPage = () => {
             <nav className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4 border-b border-white/5 bg-black/20 backdrop-blur-md">
                 <div className="flex items-center gap-2.5">
                     <img src="/logo.png" alt="WatchSync Logo" className="w-9 h-9 rounded-xl object-cover shadow-lg shadow-purple-600/30" />
-                    <span className="font-bold text-xl tracking-tight text-white">WatchSync</span>
+                    <span className="font-bold text-xl tracking-wide text-white">WatchSync</span>
                 </div>
                 <span className="text-xs text-gray-500 border border-white/10 bg-white/5 px-3 py-1 rounded-full">Beta</span>
             </nav>

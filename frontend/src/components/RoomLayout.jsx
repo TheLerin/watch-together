@@ -108,7 +108,7 @@ const RoomLayout = () => {
                 <div className="flex items-center gap-3">
                     <button onClick={() => navigate('/')} className="flex items-center gap-2">
                         <img src="/logo.png" alt="WatchSync" className="w-8 h-8 rounded-lg object-cover shadow-lg shadow-purple-600/30" />
-                        <span className="font-bold text-lg text-white hidden sm:block">WatchSync</span>
+                        <span className="font-bold text-lg tracking-wide text-white hidden sm:block pr-2">WatchSync</span>
                     </button>
                     <div className="hidden sm:block w-px h-5 bg-zinc-700" />
                     <button

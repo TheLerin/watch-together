@@ -350,22 +350,20 @@ const VideoPlayer = () => {
             {/* ── Control Bar (Host/Mod only) ─────────────────────────── */}
             {isPrivileged && (
                 <div className="flex flex-col gap-2 flex-shrink-0">
-                    <div className="flex gap-2 w-full">
-                        <form onSubmit={handleLoad} className="flex gap-2 flex-1">
-                            <div className="relative flex-1">
-                                <input
-                                    type="text"
-                                    value={inputUrl}
-                                    onChange={e => setInputUrl(e.target.value)}
-                                    placeholder="YouTube, Vimeo, Spotify URL, or video link..."
-                                    className="w-full rounded-xl py-2 pl-4 pr-4 text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all"
-                                    style={{ background: 'var(--panel-bg)', border: '1px solid var(--border-color)', color: 'var(--text-color)' }}
-                                />
-                            </div>
-                            <button type="submit" disabled={!inputUrl.trim()} className="px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white rounded-xl text-sm font-medium transition-colors">Load</button>
-                            <button type="button" disabled={!inputUrl.trim()} onClick={() => { addToQueue(inputUrl.trim(), '', inputUrl.trim()); toast.success('Added to queue'); setInputUrl(''); }} className="px-3 py-2 text-gray-300 border border-white/10 rounded-xl text-sm font-medium flex items-center gap-1.5 hover:bg-white/5 transition-colors" style={{ background: 'var(--panel-bg)' }}><Plus size={14} /> Queue</button>
+                    <div className="flex items-center w-full bg-zinc-900/40 border border-white/10 rounded-2xl p-1 shadow-inner">
+                        <form onSubmit={handleLoad} className="flex flex-1 items-center gap-1 min-w-0">
+                            <input
+                                type="text"
+                                value={inputUrl}
+                                onChange={e => setInputUrl(e.target.value)}
+                                placeholder="YouTube, Vimeo, Spotify URL, or video link..."
+                                className="flex-1 min-w-0 bg-transparent border-none px-3 py-1.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-0"
+                            />
+                            <button type="submit" disabled={!inputUrl.trim()} className="px-5 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white rounded-[10px] text-sm font-medium transition-colors shrink-0">Load</button>
+                            <button type="button" disabled={!inputUrl.trim()} onClick={() => { addToQueue(inputUrl.trim(), '', inputUrl.trim()); toast.success('Added to queue'); setInputUrl(''); }} className="hidden sm:flex px-4 py-1.5 text-zinc-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/5 rounded-[10px] text-sm font-medium items-center gap-1.5 transition-all shrink-0"><Plus size={14} /> Queue</button>
                         </form>
-                        <button type="button" onClick={() => fileInputRef.current?.click()} className="px-3 py-2 text-gray-300 border border-white/10 rounded-xl text-sm font-medium flex items-center gap-1.5 hover:bg-white/5 transition-colors" style={{ background: 'var(--panel-bg)' }}><Upload size={16} /> File</button>
+                        <div className="w-px h-5 bg-white/10 mx-1.5 shrink-0 hidden sm:block" />
+                        <button type="button" onClick={() => fileInputRef.current?.click()} className="px-4 py-1.5 text-zinc-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/5 rounded-[10px] text-sm font-medium flex items-center gap-1.5 transition-all shrink-0"><Upload size={14} /> File</button>
                         <input type="file" ref={fileInputRef} className="hidden" accept="video/*,audio/*" onChange={handleFileUpload} />
                     </div>
                     {/* Streaming indicator pill (shows right below input when streaming) */}
