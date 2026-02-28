@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const { si } = require('nyaapi');
 
 const FRONTEND_URL = process.env.CORS_ORIGIN || 'http://localhost:5173';
 
@@ -27,6 +28,44 @@ const rooms = {};
 app.get('/', (req, res) => {
     res.send('WatchSync API is running');
 });
+
+// ── Nyaa.si Anime Search Endpoint ──────────────────────────────────────────
+// Uses nyaapi to search for anime torrents on Nyaa.si and return magnet links.
+// The frontend uses these magnet links directly with WebTorrent for P2P streaming.
+app.get('/api/nyaa/search', async (req, res) => {
+    try {
+        const q = req.query.q;
+        const page = parseInt(req.query.page) || 1;
+        const filter = parseInt(req.query.filter) || 0; // 0=No filter, 2=Trusted
+        const category = req.query.category || '1_2'; // 1_2 = English anime
+
+        if (!q) return res.status(400).json({ error: 'Missing query' });
+
+        const results = await si.search({
+            term: q,
+            n: 20,
+            p: page,
+            filter,
+            category,
+        });
+
+        const mapped = (results || []).map(r => ({
+            name: r.name,
+            magnet: r.magnet,
+            size: r.filesize,
+            seeders: r.seeders,
+            leechers: r.leechers,
+            date: r.date,
+            trusted: r.trusted === 'Yes',
+        }));
+
+        res.json({ results: mapped });
+    } catch (err) {
+        console.error('Nyaa search error:', err);
+        res.status(500).json({ error: 'Search failed' });
+    }
+});
+
 
 io.on('connection', (socket) => {
     console.log('A user connected:', socket.id);

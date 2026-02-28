@@ -10,9 +10,19 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@consumet/extensions": "^1.8.8",
+    "anime-ext": "^1.1.21",
+    "aniwatch": "^2.24.3",
     "bittorrent-tracker": "^11.2.2",
     "cors": "^2.8.6",
     "express": "^5.2.1",
+    "gogoanime-api": "^0.0.5",
+    "hianime": "^1.5.1",
+    "hianime-scraper": "^3.5.0",
+    "nyaapi": "^2.4.4",
+    "puppeteer": "^24.37.5",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "socket.io": "^4.8.3"
   }
 }

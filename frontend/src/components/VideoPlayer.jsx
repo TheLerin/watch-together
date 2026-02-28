@@ -1,10 +1,11 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import ReactPlayer from 'react-player/lazy';
 import { useRoom } from '../context/RoomContext';
-import { Play, Lock, Upload, AlertCircle, Plus, ChevronDown, Mic, Subtitles as SubtitlesIcon, StopCircle } from 'lucide-react';
+import { Play, Lock, Upload, AlertCircle, Plus, ChevronDown, Mic, Subtitles as SubtitlesIcon, StopCircle, Film } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { useTheme } from '../context/ThemeContext';
+import AnimeSearch from './AnimeSearch';
 
 // How often the host reports playback position to the server (ms)
 const SYNC_INTERVAL_MS = 2000;
@@ -37,6 +38,7 @@ const VideoPlayer = () => {
     const [activeAudio, setActiveAudio] = useState(0);
     const [showSubMenu, setShowSubMenu] = useState(false);
     const [showAudioMenu, setShowAudioMenu] = useState(false);
+    const [showAnimeSearch, setShowAnimeSearch] = useState(false);
 
     const isPrivileged = currentUser?.role === 'Host' || currentUser?.role === 'Moderator';
 
@@ -256,6 +258,14 @@ const VideoPlayer = () => {
         if (videoState.url) loadVideo('');
     };
 
+    const handleAnimeSelect = (result) => {
+        // The magnet URI is supported natively by the existing WebTorrent loadVideo path
+        if (!isPrivileged || !result.magnet) return;
+        handleStopStream();
+        loadVideo(result.magnet);
+        toast.success(`🧲 Loading: ${result.name.slice(0, 50)}...`, { duration: 4000 });
+    };
+
     const handleStopStream = () => {
         stopLocalStream();
         if (hostBlobUrl) { URL.revokeObjectURL(hostBlobUrl); setHostBlobUrl(''); }
@@ -347,6 +357,15 @@ const VideoPlayer = () => {
 
     return (
         <div className="flex flex-col h-full w-full gap-2">
+            {/* ── Anime Search Modal ─────────────────────────── */}
+            <AnimatePresence>
+                {showAnimeSearch && (
+                    <AnimeSearch
+                        onSelect={handleAnimeSelect}
+                        onClose={() => setShowAnimeSearch(false)}
+                    />
+                )}
+            </AnimatePresence>
             {/* ── Control Bar (Host/Mod only) ─────────────────────────── */}
             {isPrivileged && (
                 <div className="flex flex-col gap-2 flex-shrink-0">
@@ -362,6 +381,8 @@ const VideoPlayer = () => {
                             <button type="submit" disabled={!inputUrl.trim()} className="px-5 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white rounded-[10px] text-sm font-medium transition-colors shrink-0">Load</button>
                             <button type="button" disabled={!inputUrl.trim()} onClick={() => { addToQueue(inputUrl.trim(), '', inputUrl.trim()); toast.success('Added to queue'); setInputUrl(''); }} className="hidden sm:flex px-4 py-1.5 text-zinc-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/5 rounded-[10px] text-sm font-medium items-center gap-1.5 transition-all shrink-0"><Plus size={14} /> Queue</button>
                         </form>
+                        <div className="w-px h-5 bg-white/10 mx-1.5 shrink-0 hidden sm:block" />
+                        <button type="button" onClick={() => setShowAnimeSearch(true)} className="px-4 py-1.5 text-zinc-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/5 rounded-[10px] text-sm font-medium flex items-center gap-1.5 transition-all shrink-0"><Film size={14} /> Anime</button>
                         <div className="w-px h-5 bg-white/10 mx-1.5 shrink-0 hidden sm:block" />
                         <button type="button" onClick={() => fileInputRef.current?.click()} className="px-4 py-1.5 text-zinc-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/5 rounded-[10px] text-sm font-medium flex items-center gap-1.5 transition-all shrink-0"><Upload size={14} /> File</button>
                         <input type="file" ref={fileInputRef} className="hidden" accept="video/*,audio/*" onChange={handleFileUpload} />
