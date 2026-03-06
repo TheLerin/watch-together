@@ -67,6 +67,95 @@ app.get('/api/nyaa/search', async (req, res) => {
 });
 
 
+// ── Google Drive Proxy Stream Endpoint ─────────────────────────────────────
+// Proxies Google Drive public files to bypass CORS restrictions.
+// Usage: GET /api/drive/stream/:fileId
+app.get('/api/drive/stream/:fileId', async (req, res) => {
+    const { fileId } = req.params;
+    if (!fileId || !/^[a-zA-Z0-9_-]+$/.test(fileId)) {
+        return res.status(400).json({ error: 'Invalid file ID' });
+    }
+
+    try {
+        const fetch = (await import('node-fetch')).default;
+
+        // Build headers — forward Range for seek support
+        const baseHeaders = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' };
+        if (req.headers.range) {
+            baseHeaders['Range'] = req.headers.range;
+        }
+
+        let downloadUrl = `https://drive.google.com/uc?export=download&confirm=t&id=${fileId}`;
+        let response = await fetch(downloadUrl, { headers: baseHeaders, redirect: 'follow' });
+
+        // If the response is HTML, it means one of two things:
+        // 1. The file is large and showing the virus scan warning.
+        // 2. The file is private and redirected to Google Login.
+        let contentType = response.headers.get('content-type') || '';
+
+        if (contentType.includes('text/html')) {
+            const html = await response.text();
+
+            // Check if it's a login redirect (file is private)
+            if (html.includes('ServiceLogin') || response.url.includes('accounts.google.com')) {
+                console.error(`Drive proxy: File ${fileId} is private/restricted.`);
+                return res.status(403).json({ error: 'This Google Drive link is private or requires login. Please make sure link sharing is set to "Anyone with the link".' });
+            }
+
+            // Otherwise, see if it's the virus scan warning
+            const rawCookies = response.headers.raw()['set-cookie'] || [];
+            const cookieString = rawCookies.map(c => c.split(';')[0]).join('; ');
+
+            const formAction = html.match(/id="download-form"[^>]*action="([^"]+)"/);
+            const uuidMatch = html.match(/name="uuid" value="([^"]+)"/);
+
+            if (formAction) {
+                let actionUrl = formAction[1].replace(/&amp;/g, '&');
+                if (!actionUrl.startsWith('http')) actionUrl = 'https://drive.google.com' + actionUrl;
+                if (uuidMatch) actionUrl += '&uuid=' + uuidMatch[1];
+
+                const retryHeaders = { ...baseHeaders, 'Cookie': cookieString };
+                response = await fetch(actionUrl, { headers: retryHeaders, redirect: 'follow' });
+            } else {
+                // Try fallback /uc URL with cookies
+                const retryHeaders = { ...baseHeaders, 'Cookie': cookieString };
+                response = await fetch(`https://drive.google.com/uc?export=download&confirm=t&id=${fileId}`, { headers: retryHeaders, redirect: 'follow' });
+            }
+        }
+
+        // Final sanity check: if we STILL have HTML, it's unplayable.
+        contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('text/html')) {
+            if (response.url.includes('accounts.google.com')) {
+                return res.status(403).json({ error: 'File is private or requires login.' });
+            }
+            return res.status(400).json({ error: 'Google Drive returned an HTML page instead of a video file. This might occur if the file is restricted or hit download limits.' });
+        }
+
+        if (!response.ok && response.status !== 206) {
+            console.error('Drive proxy: non-OK status', response.status);
+            return res.status(response.status).json({ error: 'Failed to fetch file from Google Drive' });
+        }
+
+        // Forward relevant headers
+        const fwdHeaders = ['content-type', 'content-length', 'content-range', 'accept-ranges', 'content-disposition'];
+        fwdHeaders.forEach(h => {
+            const val = response.headers.get(h);
+            if (val) res.setHeader(h, val);
+        });
+        res.setHeader('Access-Control-Allow-Origin', '*');
+
+        res.status(response.status);
+        response.body.pipe(res);
+    } catch (err) {
+        console.error('Google Drive proxy error:', err);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to stream from Google Drive' });
+        }
+    }
+});
+
+
 io.on('connection', (socket) => {
     console.log('A user connected:', socket.id);
 

@@ -12,6 +12,30 @@ const SYNC_INTERVAL_MS = 2000;
 // Maximum drift allowed before viewers auto-seek (seconds)
 const DRIFT_THRESHOLD = 2;
 
+// Backend API base (same origin in production, or dev proxy)
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
+/**
+ * Detect Google Drive share links and convert them to backend proxy URLs.
+ * Supports formats:
+ *   - https://drive.google.com/file/d/{ID}/view?usp=...
+ *   - https://drive.google.com/open?id={ID}
+ *   - https://drive.google.com/uc?id={ID}&export=download
+ */
+function convertGoogleDriveUrl(url) {
+    if (!url) return url;
+    // Format: /file/d/{ID}/...
+    let match = url.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
+    if (match) return `${API_BASE}/api/drive/stream/${match[1]}`;
+    // Format: /open?id={ID}
+    match = url.match(/drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/);
+    if (match) return `${API_BASE}/api/drive/stream/${match[1]}`;
+    // Format: /uc?id={ID}
+    match = url.match(/drive\.google\.com\/uc\?.*id=([a-zA-Z0-9_-]+)/);
+    if (match) return `${API_BASE}/api/drive/stream/${match[1]}`;
+    return url;
+}
+
 const VideoPlayer = () => {
     const { videoState, currentUser, loadVideo, addToQueue, playVideo, pauseVideo, syncProgress, seekVideo,
         remoteStream, isHostStreaming, startLocalStream, stopLocalStream, getHostStreamer } = useRoom();
@@ -240,7 +264,8 @@ const VideoPlayer = () => {
         setPlayerError(null);
         // Always stop any active local stream / clear blob url
         handleStopStream();
-        loadVideo(inputUrl.trim());
+        const finalUrl = convertGoogleDriveUrl(inputUrl.trim());
+        loadVideo(finalUrl);
         setInputUrl('');
     };
 
@@ -375,11 +400,11 @@ const VideoPlayer = () => {
                                 type="text"
                                 value={inputUrl}
                                 onChange={e => setInputUrl(e.target.value)}
-                                placeholder="YouTube, Vimeo, Spotify URL, or video link..."
+                                placeholder="YouTube, Vimeo, Spotify, Google Drive, or video link..."
                                 className="flex-1 min-w-0 bg-transparent border-none px-3 py-1.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-0"
                             />
                             <button type="submit" disabled={!inputUrl.trim()} className="px-5 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white rounded-[10px] text-sm font-medium transition-colors shrink-0">Load</button>
-                            <button type="button" disabled={!inputUrl.trim()} onClick={() => { addToQueue(inputUrl.trim(), '', inputUrl.trim()); toast.success('Added to queue'); setInputUrl(''); }} className="hidden sm:flex px-4 py-1.5 text-zinc-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/5 rounded-[10px] text-sm font-medium items-center gap-1.5 transition-all shrink-0"><Plus size={14} /> Queue</button>
+                            <button type="button" disabled={!inputUrl.trim()} onClick={() => { const qUrl = convertGoogleDriveUrl(inputUrl.trim()); addToQueue(qUrl, '', inputUrl.trim()); toast.success('Added to queue'); setInputUrl(''); }} className="hidden sm:flex px-4 py-1.5 text-zinc-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/5 rounded-[10px] text-sm font-medium items-center gap-1.5 transition-all shrink-0"><Plus size={14} /> Queue</button>
                         </form>
                         <div className="w-px h-5 bg-white/10 mx-1.5 shrink-0 hidden sm:block" />
                         <button type="button" onClick={() => setShowAnimeSearch(true)} className="px-4 py-1.5 text-zinc-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/5 rounded-[10px] text-sm font-medium flex items-center gap-1.5 transition-all shrink-0"><Film size={14} /> Anime</button>

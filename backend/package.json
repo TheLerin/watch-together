@@ -19,6 +19,7 @@
     "gogoanime-api": "^0.0.5",
     "hianime": "^1.5.1",
     "hianime-scraper": "^3.5.0",
+    "node-fetch": "^3.3.2",
     "nyaapi": "^2.4.4",
     "puppeteer": "^24.37.5",
     "puppeteer-extra": "^3.3.6",
