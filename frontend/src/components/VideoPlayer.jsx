@@ -438,7 +438,8 @@ const VideoPlayer = () => {
                                     src={playerUrl}
                                     controls={isPrivileged}
                                     style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000' }}
-                                    crossOrigin="anonymous"
+                                    // NOTE: do NOT add crossOrigin here — it triggers a CORS preflight
+                                    // that conflicts with the proxy's streaming response and blocks the video.
                                     onCanPlay={() => {
                                         setIsPlayerReady(true);
                                         setPlayerError(null);
@@ -466,7 +467,6 @@ const VideoPlayer = () => {
                                         if (!isPrivileged) return;
                                         endSeekGuard(() => nativeVideoRef.current?.currentTime || 0);
                                     }}
-                                    // BUG-19: Fixed threshold: compare elapsed since last sync using SYNC_INTERVAL_MS in seconds
                                     onTimeUpdate={() => {
                                         if (!isPrivileged || !nativeVideoRef.current || isSeekingRef.current) return;
                                         const t = nativeVideoRef.current.currentTime || 0;
@@ -475,7 +475,21 @@ const VideoPlayer = () => {
                                             syncProgress(t);
                                         }
                                     }}
-                                    onError={() => setPlayerError('Could not load Google Drive video. Ensure the file is shared as "Anyone with the link".')}
+                                    onError={async () => {
+                                        // Try to fetch the proxy URL directly to get the error message
+                                        let msg = 'Could not load Google Drive video.';
+                                        try {
+                                            const r = await fetch(playerUrl);
+                                            if (!r.ok) {
+                                                const body = await r.json().catch(() => null);
+                                                if (body?.hint) msg = body.hint;
+                                                else if (r.status === 502 || r.status === 403) {
+                                                    msg = 'Google Drive could not serve this file. Make sure it is shared as "Anyone with the link" and try again.';
+                                                }
+                                            }
+                                        } catch (_) {}
+                                        setPlayerError(msg);
+                                    }}
                                 />
                             )}
 
@@ -537,9 +551,18 @@ const VideoPlayer = () => {
 
                             {/* ── Error overlay ───────────────────────────────────── */}
                             {playerError && (
-                                <div className="absolute inset-0 flex flex-col items-center justify-center z-20 bg-black/90">
-                                    <AlertCircle size={40} className="text-red-400 mb-4" />
-                                    <p className="text-gray-300 text-sm text-center px-6">{playerError}</p>
+                                <div className="absolute inset-0 flex flex-col items-center justify-center z-20 bg-black/90 px-6">
+                                    <AlertCircle size={36} className="text-red-400 mb-3" />
+                                    <p className="text-gray-200 text-sm text-center font-medium mb-3">{playerError}</p>
+                                    {isGDriveProxy && (
+                                        <div className="border border-blue-500/30 bg-blue-500/10 rounded-xl p-4 text-xs text-blue-200 max-w-sm text-left space-y-1">
+                                            <p className="font-semibold text-blue-300 mb-2">How to fix Google Drive sharing:</p>
+                                            <p>1. Open the file in Google Drive</p>
+                                            <p>2. Click <strong>Share</strong> → change to <strong>Anyone with the link</strong></p>
+                                            <p>3. Set role to <strong>Viewer</strong></p>
+                                            <p>4. Copy the share link and paste it again here</p>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 

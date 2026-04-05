@@ -31,25 +31,38 @@ app.get('/', (req, res) => {
 
 // ── Google Drive Proxy ──────────────────────────────────────────────────────
 // Manually follows every redirect while accumulating cookies so Google's
-// virus-scan confirmation flow works reliably for large public files.
+// scan/confirmation flow works. Uses drive.google.com/uc as the entry point
+// (with a Referer header) which issues a 303 redirect to the actual download.
 // Usage: GET /api/proxy/gdrive?id=<GOOGLE_DRIVE_FILE_ID>
 app.get('/api/proxy/gdrive', async (req, res) => {
     const { id } = req.query;
     if (!id) return res.status(400).send('Missing Google Drive file id');
 
-    const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36';
+    // Per-hop timeout in ms — prevents the server hanging indefinitely
+    const HOP_TIMEOUT_MS = 15000;
+
+    const UA      = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36';
+    const REFERER = 'https://drive.google.com/';
 
     const setCorsHeaders = () => {
         res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
+        res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges, Content-Type');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
     };
+
+    // Handle OPTIONS preflight
+    if (req.method === 'OPTIONS') {
+        setCorsHeaders();
+        return res.sendStatus(204);
+    }
 
     const streamResponse = (hop) => {
         const ct = hop.headers['content-type'] || 'video/mp4';
         setCorsHeaders();
         res.setHeader('Content-Type', ct);
         if (hop.headers['content-length']) res.setHeader('Content-Length', hop.headers['content-length']);
-        if (hop.headers['accept-ranges'])  res.setHeader('Accept-Ranges',  hop.headers['accept-ranges']);
+        // Always advertise range support so the browser can seek
+        res.setHeader('Accept-Ranges', hop.headers['accept-ranges'] || 'bytes');
         if (hop.headers['content-range'])  res.setHeader('Content-Range',  hop.headers['content-range']);
         res.status(hop.status === 206 ? 206 : 200);
         hop.data.pipe(res);
@@ -62,22 +75,41 @@ app.get('/api/proxy/gdrive', async (req, res) => {
         return Buffer.concat(chunks).toString('utf-8');
     };
 
+    // ── Entry-point URL strategies (tried in order) ──────────────────────────
+    // Strategy A: drive.google.com/uc — still issues a 303 redirect when given Referer
+    // Strategy B: drive.usercontent.google.com/download — legacy fallback
+    const startUrls = [
+        `https://drive.google.com/uc?export=download&id=${id}&confirm=t`,
+        `https://drive.google.com/uc?id=${id}&export=download&confirm=t&authuser=0`,
+        `https://drive.usercontent.google.com/download?id=${id}&export=download&authuser=0&confirm=t`,
+    ];
+
+    for (const startUrl of startUrls) {
     try {
-        let url       = `https://drive.usercontent.google.com/download?id=${id}&export=download&authuser=0&confirm=t`;
+        let url       = startUrl;
         let cookieJar = '';
         let hops      = 10;
 
         while (hops-- > 0) {
-            const headers = { 'User-Agent': UA };
+            const headers = {
+                'User-Agent': UA,
+                'Referer':    REFERER,   // ← required: Google returns 303 only with Referer
+                'Accept':     'video/mp4,video/webm,video/*;q=0.9,*/*;q=0.8',
+            };
             if (cookieJar)         headers['Cookie'] = cookieJar;
+            // Forward the client's Range header so seeking works
             if (req.headers.range) headers['Range']  = req.headers.range;
 
             let hop;
             try {
-                hop = await axios({ method: 'GET', url, responseType: 'stream',
-                    headers, maxRedirects: 0, validateStatus: s => s < 600 });
+                hop = await axios({
+                    method: 'GET', url, responseType: 'stream',
+                    headers, maxRedirects: 0,
+                    validateStatus: s => s < 600,
+                    timeout: HOP_TIMEOUT_MS,
+                });
             } catch (e) {
-                // axios throws on 3xx when maxRedirects=0; the response is on the error object
+                // axios throws on 3xx when maxRedirects=0 — response is on the error object
                 if (e.response && e.response.headers.location) {
                     hop = e.response;
                 } else {
@@ -85,7 +117,7 @@ app.get('/api/proxy/gdrive', async (req, res) => {
                 }
             }
 
-            // Accumulate cookies across hops (this is the key fix — axios auto-mode drops them)
+            // Accumulate cookies across hops (critical — axios auto-mode drops them)
             const sc = hop.headers['set-cookie'];
             if (sc) {
                 const fresh = sc.map(c => c.split(';')[0]).join('; ');
@@ -100,14 +132,21 @@ app.get('/api/proxy/gdrive', async (req, res) => {
             if (status >= 300 && status < 400 && loc) {
                 try { hop.data.destroy(); } catch (_) {}
                 url = loc.startsWith('http') ? loc : `https://drive.google.com${loc}`;
-                console.log(`GDrive hop (${status}) → ${url.slice(0, 90)}`);
+                console.log(`GDrive hop (${status}) → ${url.slice(0, 100)}`);
                 continue;
             }
 
             // Got actual bytes — stream to client
             if (!ct.includes('text/html') && status < 400) {
-                console.log(`GDrive: streaming (${ct}, ${status})`);
+                console.log(`GDrive: streaming (${ct}, status=${status})`);
                 return streamResponse(hop);
+            }
+
+            // 4xx that isn't HTML — file not found / not shared
+            if (status === 403 || status === 404) {
+                try { hop.data.destroy(); } catch (_) {}
+                console.log(`GDrive: ${status} from ${url.slice(0,80)} — trying next strategy`);
+                break; // try next startUrl
             }
 
             // Got HTML — virus-scan / confirmation page
@@ -120,47 +159,68 @@ app.get('/api/proxy/gdrive', async (req, res) => {
                 if (m) {
                     url = m[1].replace(/&amp;/g, '&');
                     if (!url.startsWith('http')) url = 'https://drive.google.com' + url;
-                    console.log(`GDrive: form action → ${url.slice(0, 90)}`);
+                    console.log(`GDrive: form action → ${url.slice(0, 100)}`);
                     continue;
                 }
 
-                // Try 2: extract confirm + uuid params
+                // Try 2: extract confirm + uuid hidden fields
                 const cm = html.match(/[?&]confirm=([0-9A-Za-z_-]+)/)
                          || html.match(/name=["']confirm["'][^>]*value=["']([^"']+)["']/i);
                 const um = html.match(/name=["']uuid["'][^>]*value=["']([^"']+)["']/i)
                          || html.match(/[?&]uuid=([0-9A-Za-z_-]+)/);
 
-                const confirm = cm ? cm[1] : 't';
-                const uuid    = um ? um[1] : null;
-                url = `https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=${confirm}`;
-                if (uuid) url += `&uuid=${uuid}`;
-                console.log(`GDrive: confirm retry (confirm=${confirm}, uuid=${uuid})`);
-                continue;
+                // Try 3: look for any direct usercontent download link in the HTML
+                const lm = html.match(/href="(https:\/\/drive\.usercontent\.google\.com\/download[^"]+)"/i);
+                if (lm) {
+                    url = lm[1].replace(/&amp;/g, '&');
+                    console.log(`GDrive: usercontent link in HTML → ${url.slice(0, 100)}`);
+                    continue;
+                }
+
+                if (cm) {
+                    const confirm = cm[1];
+                    const uuid    = um ? um[1] : null;
+                    url = `https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=${confirm}`;
+                    if (uuid) url += `&uuid=${uuid}`;
+                    console.log(`GDrive: confirm retry (confirm=${confirm}, uuid=${uuid || 'none'})`);
+                    continue;
+                }
+
+                console.log(`GDrive: no usable link found in HTML (${html.length} bytes), breaking`);
+                break;
             }
 
             console.error(`GDrive: unexpected status=${status} ct="${ct}"`);
             break;
         }
 
-        if (!res.headersSent) {
-            setCorsHeaders();
-            res.status(403).send(
-                'Could not stream this Google Drive file.\n\n' +
-                'Steps to fix:\n' +
-                '1. Open the file in Google Drive\n' +
-                '2. Click "Share" → Change to "Anyone with the link"\n' +
-                '3. Make sure the role is "Viewer"\n' +
-                '4. Copy the share link and paste it here'
-            );
-        }
+        // This startUrl strategy exhausted — try next one
+        if (res.headersSent) return;
+        console.log(`GDrive: startUrl exhausted (${startUrl.slice(0,60)}), trying next...`);
     } catch (err) {
-        console.error('GDrive proxy error:', err.message);
-        if (!res.headersSent) {
-            setCorsHeaders();
-            res.status(500).send('Proxy error: ' + err.message);
-        }
+        if (res.headersSent) break;
+        console.log(`GDrive: startUrl threw: ${err.message} (${startUrl.slice(0,50)}), trying next...`);
+    }
+    } // end for (startUrls)
+
+    // All strategies failed
+    if (!res.headersSent) {
+        setCorsHeaders();
+        res.status(502).json({
+            error: 'Could not stream this Google Drive file.',
+            hint: 'Make sure the file is shared as "Anyone with the link" (Viewer). Large files may require re-sharing or using a direct video host instead.',
+        });
     }
 });
+
+// Handle CORS preflight for the proxy route
+app.options('/api/proxy/gdrive', (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Range');
+    res.sendStatus(204);
+});
+
 
 
 
