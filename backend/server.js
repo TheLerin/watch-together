@@ -30,129 +30,139 @@ app.get('/', (req, res) => {
 });
 
 // ── Google Drive Proxy ──────────────────────────────────────────────────────
-// Streams a public Google Drive file using multiple fallback strategies
-// to bypass Google's download restrictions.
+// Manually follows every redirect while accumulating cookies so Google's
+// virus-scan confirmation flow works reliably for large public files.
 // Usage: GET /api/proxy/gdrive?id=<GOOGLE_DRIVE_FILE_ID>
 app.get('/api/proxy/gdrive', async (req, res) => {
     const { id } = req.query;
     if (!id) return res.status(400).send('Missing Google Drive file id');
 
-    const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+    const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36';
 
     const setCorsHeaders = () => {
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
     };
 
-    const forwardRangeHeaders = (extra = {}) => {
-        const h = { 'User-Agent': UA, ...extra };
-        if (req.headers.range) h['Range'] = req.headers.range;
-        return h;
+    const streamResponse = (hop) => {
+        const ct = hop.headers['content-type'] || 'video/mp4';
+        setCorsHeaders();
+        res.setHeader('Content-Type', ct);
+        if (hop.headers['content-length']) res.setHeader('Content-Length', hop.headers['content-length']);
+        if (hop.headers['accept-ranges'])  res.setHeader('Accept-Ranges',  hop.headers['accept-ranges']);
+        if (hop.headers['content-range'])  res.setHeader('Content-Range',  hop.headers['content-range']);
+        res.status(hop.status === 206 ? 206 : 200);
+        hop.data.pipe(res);
+        req.on('close', () => { try { hop.data.destroy(); } catch (_) {} });
     };
 
-    // Stream a response object back to the client
-    const streamResponse = (response) => {
-        const contentType = response.headers['content-type'] || 'video/mp4';
-        const contentLength = response.headers['content-length'];
-        const acceptRanges = response.headers['accept-ranges'];
-
-        setCorsHeaders();
-        res.setHeader('Content-Type', contentType);
-        if (contentLength) res.setHeader('Content-Length', contentLength);
-        if (acceptRanges) res.setHeader('Accept-Ranges', acceptRanges);
-        if (response.headers['content-range']) res.setHeader('Content-Range', response.headers['content-range']);
-        res.status(response.status === 206 ? 206 : 200);
-        response.data.pipe(res);
-        req.on('close', () => response.data.destroy());
+    const readBodyText = async (stream) => {
+        const chunks = [];
+        for await (const c of stream) chunks.push(Buffer.from(c));
+        return Buffer.concat(chunks).toString('utf-8');
     };
 
     try {
-        // ── Strategy 1: Try the newer /uc endpoint with authuser param ───
-        // This works for many publicly-shared files without needing a session
-        const urls = [
-            `https://drive.google.com/uc?export=download&id=${id}&confirm=t&authuser=0`,
-            `https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=t`,
-        ];
+        let url       = `https://drive.usercontent.google.com/download?id=${id}&export=download&authuser=0&confirm=t`;
+        let cookieJar = '';
+        let hops      = 10;
 
-        for (const downloadUrl of urls) {
-            let response;
+        while (hops-- > 0) {
+            const headers = { 'User-Agent': UA };
+            if (cookieJar)         headers['Cookie'] = cookieJar;
+            if (req.headers.range) headers['Range']  = req.headers.range;
+
+            let hop;
             try {
-                response = await axios({
-                    method: 'GET',
-                    url: downloadUrl,
-                    responseType: 'stream',
-                    headers: forwardRangeHeaders(),
-                    maxRedirects: 10,
-                    validateStatus: (s) => s < 500,
-                });
+                hop = await axios({ method: 'GET', url, responseType: 'stream',
+                    headers, maxRedirects: 0, validateStatus: s => s < 600 });
             } catch (e) {
-                console.log(`GDrive: strategy failed for ${downloadUrl}: ${e.message}`);
+                // axios throws on 3xx when maxRedirects=0; the response is on the error object
+                if (e.response && e.response.headers.location) {
+                    hop = e.response;
+                } else {
+                    throw e;
+                }
+            }
+
+            // Accumulate cookies across hops (this is the key fix — axios auto-mode drops them)
+            const sc = hop.headers['set-cookie'];
+            if (sc) {
+                const fresh = sc.map(c => c.split(';')[0]).join('; ');
+                cookieJar   = cookieJar ? `${cookieJar}; ${fresh}` : fresh;
+            }
+
+            const status = hop.status;
+            const ct     = hop.headers['content-type'] || '';
+            const loc    = hop.headers['location']     || '';
+
+            // 3xx — follow the redirect
+            if (status >= 300 && status < 400 && loc) {
+                try { hop.data.destroy(); } catch (_) {}
+                url = loc.startsWith('http') ? loc : `https://drive.google.com${loc}`;
+                console.log(`GDrive hop (${status}) → ${url.slice(0, 90)}`);
                 continue;
             }
 
-            const ct = response.headers['content-type'] || '';
-
-            // Got a non-HTML response → it's the actual file
-            if (!ct.includes('text/html') && response.status < 400) {
-                console.log(`GDrive: streaming via ${downloadUrl} (${ct})`);
-                return streamResponse(response);
+            // Got actual bytes — stream to client
+            if (!ct.includes('text/html') && status < 400) {
+                console.log(`GDrive: streaming (${ct}, ${status})`);
+                return streamResponse(hop);
             }
 
-            // Got HTML → might be a virus-warning/confirmation page, extract token and retry
+            // Got HTML — virus-scan / confirmation page
             if (ct.includes('text/html')) {
-                const chunks = [];
-                for await (const chunk of response.data) chunks.push(chunk);
-                const html = Buffer.concat(chunks).toString('utf-8');
+                const html = await readBodyText(hop.data);
 
-                const rawCookies = response.headers['set-cookie'];
-                const cookieStr = rawCookies ? rawCookies.map(c => c.split(';')[0]).join('; ') : '';
-
-                let confirmToken = 't';
-                const confirmMatch = html.match(/confirm=([0-9A-Za-z_-]+)/);
-                if (confirmMatch) confirmToken = confirmMatch[1];
-
-                const uuidMatch = html.match(/name="uuid"\s+value="([^"]+)"/);
-                let retryUrl = `https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=${confirmToken}`;
-                if (uuidMatch) retryUrl += `&uuid=${uuidMatch[1]}`;
-
-                let retryResponse;
-                try {
-                    retryResponse = await axios({
-                        method: 'GET',
-                        url: retryUrl,
-                        responseType: 'stream',
-                        headers: forwardRangeHeaders({ Cookie: cookieStr }),
-                        maxRedirects: 10,
-                        validateStatus: (s) => s < 500,
-                    });
-                } catch (e) {
-                    console.log(`GDrive: retry failed: ${e.message}`);
+                // Try 1: grab the form action URL directly (most reliable)
+                let m = html.match(/action="(https?:\/\/[^"]*download[^"]*)"/i)
+                      || html.match(/action="([^"]*\/download[^"]*)"/i);
+                if (m) {
+                    url = m[1].replace(/&amp;/g, '&');
+                    if (!url.startsWith('http')) url = 'https://drive.google.com' + url;
+                    console.log(`GDrive: form action → ${url.slice(0, 90)}`);
                     continue;
                 }
 
-                const retryCt = retryResponse.headers['content-type'] || '';
-                if (!retryCt.includes('text/html') && retryResponse.status < 400) {
-                    console.log(`GDrive: streaming via retry (${retryCt})`);
-                    return streamResponse(retryResponse);
-                }
+                // Try 2: extract confirm + uuid params
+                const cm = html.match(/[?&]confirm=([0-9A-Za-z_-]+)/)
+                         || html.match(/name=["']confirm["'][^>]*value=["']([^"']+)["']/i);
+                const um = html.match(/name=["']uuid["'][^>]*value=["']([^"']+)["']/i)
+                         || html.match(/[?&]uuid=([0-9A-Za-z_-]+)/);
+
+                const confirm = cm ? cm[1] : 't';
+                const uuid    = um ? um[1] : null;
+                url = `https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=${confirm}`;
+                if (uuid) url += `&uuid=${uuid}`;
+                console.log(`GDrive: confirm retry (confirm=${confirm}, uuid=${uuid})`);
+                continue;
             }
+
+            console.error(`GDrive: unexpected status=${status} ct="${ct}"`);
+            break;
         }
 
-        // All strategies failed
-        console.error(`GDrive: all strategies failed for id=${id}`);
         if (!res.headersSent) {
             setCorsHeaders();
-            res.status(403).send('Could not download file from Google Drive. Make sure it is shared as "Anyone with the link" and not restricted.');
+            res.status(403).send(
+                'Could not stream this Google Drive file.\n\n' +
+                'Steps to fix:\n' +
+                '1. Open the file in Google Drive\n' +
+                '2. Click "Share" → Change to "Anyone with the link"\n' +
+                '3. Make sure the role is "Viewer"\n' +
+                '4. Copy the share link and paste it here'
+            );
         }
-
     } catch (err) {
-        console.error('Google Drive proxy error:', err.message);
+        console.error('GDrive proxy error:', err.message);
         if (!res.headersSent) {
             setCorsHeaders();
-            res.status(500).send('Failed to stream from Google Drive.');
+            res.status(500).send('Proxy error: ' + err.message);
         }
     }
 });
+
+
 
 io.on('connection', (socket) => {
     console.log('A user connected:', socket.id);
