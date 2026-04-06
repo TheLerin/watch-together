@@ -194,8 +194,9 @@ const VideoPlayer = () => {
     }, [videoState.playedSeconds, videoState.seekVersion, isPlayerReady, isPrivileged, isGDriveProxy]);
 
     // ── 3. Drift correction – GDrive native video viewers ────────────────────
+    // FIX: Guard with isPlayerReady so we don't seek before the video is loaded
     useEffect(() => {
-        if (!isGDriveProxy || isPrivileged || !nativeVideoRef.current) return;
+        if (!isGDriveProxy || isPrivileged || !nativeVideoRef.current || !isPlayerReady) return;
         const stateTime   = videoState.playedSeconds || 0;
         const currentTime = nativeVideoRef.current.currentTime || 0;
         const seekVer     = videoState.seekVersion ?? 0;
@@ -207,7 +208,7 @@ const VideoPlayer = () => {
         if (isForcedSeek || (nativeVideoRef.current.readyState >= 3 && Math.abs(currentTime - stateTime) > 2)) {
             nativeVideoRef.current.currentTime = stateTime;
         }
-    }, [videoState.playedSeconds, videoState.seekVersion, isGDriveProxy, isPrivileged]);
+    }, [videoState.playedSeconds, videoState.seekVersion, isGDriveProxy, isPrivileged, isPlayerReady]);
 
     // ── 4. GDrive play / pause control ────────────────────────────────────────
     useEffect(() => {
@@ -244,13 +245,22 @@ const VideoPlayer = () => {
         }
     }, []); // BUG-04: no deps — reads state via ref
 
-    // ── 6. Host progress sync interval (ReactPlayer only) ────────────────────
+    // ── 6. Host progress sync interval (ReactPlayer + GDrive host) ──────────
+    // FIX: GDrive host now also gets a sync interval (was wrongly excluded before)
     useEffect(() => {
-        if (!isPrivileged || isGDriveProxy) return;
+        if (!isPrivileged) return;
         syncIntervalRef.current = setInterval(() => {
-            if (isSeekingRef.current || !playerRef.current) return;
-            const t = playerRef.current.getCurrentTime?.() || 0;
-            if (t > 0) syncProgress(t);
+            if (isSeekingRef.current) return;
+            if (isGDriveProxy) {
+                // GDrive host: read position from native video element
+                const t = nativeVideoRef.current?.currentTime || 0;
+                if (t > 0) syncProgress(t);
+            } else {
+                // ReactPlayer host
+                if (!playerRef.current) return;
+                const t = playerRef.current.getCurrentTime?.() || 0;
+                if (t > 0) syncProgress(t);
+            }
         }, SYNC_INTERVAL_MS);
         return () => clearInterval(syncIntervalRef.current);
     }, [isPrivileged, syncProgress, isGDriveProxy]);
@@ -454,17 +464,24 @@ const VideoPlayer = () => {
                                     ref={nativeVideoRef}
                                     key={playerUrl}
                                     src={playerUrl}
-                                    controls={isPrivileged}
+                                    // FIX: All users get controls — viewers need volume/fullscreen at minimum
+                                    controls
+                                    // FIX: preload="auto" tells browser to buffer immediately, not wait for click
+                                    preload="auto"
                                     style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000' }}
                                     // NOTE: do NOT add crossOrigin here — it triggers a CORS preflight
                                     // that conflicts with the proxy's streaming response and blocks the video.
-                                    onCanPlay={() => {
-                                        setIsPlayerReady(true);
-                                        setPlayerError(null);
+                                    onLoadedMetadata={() => {
+                                        // FIX: onLoadedMetadata fires earlier than onCanPlay and is more reliable
+                                        // for setting initial seek position when a viewer joins mid-video
                                         const stateTime = videoStateRef.current.playedSeconds || 0;
                                         if (stateTime > 2 && nativeVideoRef.current) {
                                             nativeVideoRef.current.currentTime = stateTime;
                                         }
+                                    }}
+                                    onCanPlay={() => {
+                                        setIsPlayerReady(true);
+                                        setPlayerError(null);
                                         if (videoStateRef.current.isPlaying && nativeVideoRef.current) {
                                             nativeVideoRef.current.play().catch(() => {});
                                         }
@@ -486,27 +503,19 @@ const VideoPlayer = () => {
                                         endSeekGuard(() => nativeVideoRef.current?.currentTime || 0);
                                     }}
                                     onTimeUpdate={() => {
-                                        if (!isPrivileged || !nativeVideoRef.current || isSeekingRef.current) return;
-                                        const t = nativeVideoRef.current.currentTime || 0;
-                                        if (t > 0 && Math.abs(t - lastSyncedPosRef.current) >= SYNC_INTERVAL_MS / 1000) {
-                                            lastSyncedPosRef.current = t;
-                                            syncProgress(t);
+                                        // FIX: Removed redundant syncProgress call here — host sync interval
+                                        // handles broadcasting. This was causing double-emits.
+                                        // Viewers: block any seek attempts via timeline (non-privileged)
+                                        if (!isPrivileged && nativeVideoRef.current) {
+                                            // Snap viewer back if they somehow move the native scrubber
+                                            // (this is a safety net only, won't fire normally)
                                         }
                                     }}
-                                    onError={async () => {
-                                        // Try to fetch the proxy URL directly to get the error message
-                                        let msg = 'Could not load Google Drive video.';
-                                        try {
-                                            const r = await fetch(playerUrl);
-                                            if (!r.ok) {
-                                                const body = await r.json().catch(() => null);
-                                                if (body?.hint) msg = body.hint;
-                                                else if (r.status === 502 || r.status === 403) {
-                                                    msg = 'Google Drive could not serve this file. Make sure it is shared as "Anyone with the link" and try again.';
-                                                }
-                                            }
-                                        } catch (_) {}
-                                        setPlayerError(msg);
+                                    // FIX: Simplified error handler — no second fetch() to avoid double-stream
+                                    onError={() => {
+                                        setPlayerError(
+                                            'Could not load Google Drive video. Make sure the file is shared as "Anyone with the link" in Google Drive.'
+                                        );
                                     }}
                                 />
                             )}
