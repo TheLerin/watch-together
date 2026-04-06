@@ -203,9 +203,8 @@ const VideoPlayer = () => {
         prevSeekVersionGDriveRef.current = seekVer;
         
         // If it's a forced seek (host clicked timeline), always seek.
-        // If it's just drift, ONLY correct if the video has buffered and drift is massive (> 10s).
-        // A low threshold causes the proxy to constantly abort and re-download.
-        if (isForcedSeek || (nativeVideoRef.current.readyState >= 3 && Math.abs(currentTime - stateTime) > 10)) {
+        // With backend caching, proxy seeking is instant, so we can restore tight real-time sync (2s threshold).
+        if (isForcedSeek || (nativeVideoRef.current.readyState >= 3 && Math.abs(currentTime - stateTime) > 2)) {
             nativeVideoRef.current.currentTime = stateTime;
         }
     }, [videoState.playedSeconds, videoState.seekVersion, isGDriveProxy, isPrivileged]);

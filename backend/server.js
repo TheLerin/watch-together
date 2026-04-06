@@ -34,6 +34,10 @@ app.get('/', (req, res) => {
 // scan/confirmation flow works. Uses drive.google.com/uc as the entry point
 // (with a Referer header) which issues a 303 redirect to the actual download.
 // Usage: GET /api/proxy/gdrive?id=<GOOGLE_DRIVE_FILE_ID>
+
+const gdriveCache = new Map(); // id -> { url, cookieJar, timestamp }
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
 app.get('/api/proxy/gdrive', async (req, res) => {
     const { id } = req.query;
     if (!id) return res.status(400).send('Missing Google Drive file id');
@@ -74,6 +78,33 @@ app.get('/api/proxy/gdrive', async (req, res) => {
         for await (const c of stream) chunks.push(Buffer.from(c));
         return Buffer.concat(chunks).toString('utf-8');
     };
+
+    // ── Check Cache First ────────────────────────────────────────────────────
+    const cached = gdriveCache.get(id);
+    if (cached && (Date.now() - cached.timestamp < CACHE_TTL_MS)) {
+        try {
+            const headers = { 'User-Agent': UA, 'Referer': REFERER, 'Accept': 'video/mp4,video/webm,video/*;q=0.9,*/*;q=0.8' };
+            if (cached.cookieJar) headers['Cookie'] = cached.cookieJar;
+            if (req.headers.range) headers['Range'] = req.headers.range;
+
+            const hop = await axios({
+                method: 'GET', url: cached.url, responseType: 'stream',
+                headers, maxRedirects: 0, validateStatus: s => s < 600, timeout: HOP_TIMEOUT_MS,
+            });
+            
+            if (hop.status < 400 && !(hop.headers['content-type'] || '').includes('text/html')) {
+                console.log(`GDrive: CACHE HIT (${hop.status}) -> ${cached.url.slice(0, 80)}`);
+                return streamResponse(hop);
+            }
+            // If cache returns error or HTML, it might have expired on Google's end
+            console.log(`GDrive: CACHE STALE (${hop.status}) — clearing and re-fetching`);
+            try { hop.data.destroy(); } catch (_) {}
+            gdriveCache.delete(id);
+        } catch (e) {
+            console.log('GDrive: CACHE network error — clearing cache');
+            gdriveCache.delete(id);
+        }
+    }
 
     // ── Entry-point URL strategies (tried in order) ──────────────────────────
     // Strategy A: drive.google.com/uc — still issues a 303 redirect when given Referer
@@ -139,6 +170,10 @@ app.get('/api/proxy/gdrive', async (req, res) => {
             // Got actual bytes — stream to client
             if (!ct.includes('text/html') && status < 400) {
                 console.log(`GDrive: streaming (${ct}, status=${status})`);
+                
+                // Cache the final resolved URL and cookies to bypass all this logic next time
+                gdriveCache.set(id, { url, cookieJar, timestamp: Date.now() });
+
                 return streamResponse(hop);
             }
 
