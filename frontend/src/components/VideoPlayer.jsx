@@ -540,10 +540,11 @@ const VideoPlayer = () => {
                                             }
                                         }}
                                         onCanPlay={() => {
+                                            const wasReady = isPlayerReady;
                                             setIsPlayerReady(true);
                                             setPlayerError(null);
-                                            // Only force play if the server state demands it AND we aren't natively playing yet
-                                            if (videoStateRef.current.isPlaying && nativeVideoRef.current && nativeVideoRef.current.paused) {
+                                            // Only force play on initial load. If already loaded, let the effect stream or native DOM handle it.
+                                            if (!wasReady && videoStateRef.current.isPlaying && nativeVideoRef.current && nativeVideoRef.current.paused) {
                                                 nativeVideoRef.current.play().catch((err) => {
                                                     if (err.name === 'NotAllowedError') setAutoplayBlocked(true);
                                                 });
