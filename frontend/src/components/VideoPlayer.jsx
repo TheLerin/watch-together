@@ -234,24 +234,25 @@ const VideoPlayer = () => {
         
         if (isForcedSeek) {
             nativeVideoRef.current.currentTime = stateTime;
-            nativeVideoRef.current.playbackRate = 1.0;
+            if (nativeVideoRef.current.playbackRate !== 1.0) nativeVideoRef.current.playbackRate = 1.0;
         } else if (nativeVideoRef.current.readyState >= 3 && !nativeVideoRef.current.paused) {
-            // Use playbackRate to smoothly catch up instead of hard seeking which drops HTTP requests
+            // Use subtle playbackRate to smoothly catch up instead of hard seeking or aggressive fast-forwarding,
+            // which causes buffer starvation and "1 frame per sec" stuttering on marginal proxy connections.
             const diff = stateTime - currentTime; // Positive means host is ahead
             
-            if (Math.abs(diff) > 10) {
+            if (Math.abs(diff) > 15) {
                 // Way out of sync (or joined late), force jump
                 nativeVideoRef.current.currentTime = stateTime;
-                nativeVideoRef.current.playbackRate = 1.0;
-            } else if (diff > 2) {
-                // Viewer is lagging behind -> speed up
-                nativeVideoRef.current.playbackRate = 1.25;
-            } else if (diff < -2) {
+                if (nativeVideoRef.current.playbackRate !== 1.0) nativeVideoRef.current.playbackRate = 1.0;
+            } else if (diff > 5) {
+                // Viewer is lagging behind -> slow/subtle speed up (1.05x instead of 1.25x)
+                if (nativeVideoRef.current.playbackRate !== 1.05) nativeVideoRef.current.playbackRate = 1.05;
+            } else if (diff < -5) {
                 // Viewer is ahead -> slow down
-                nativeVideoRef.current.playbackRate = 0.75;
+                if (nativeVideoRef.current.playbackRate !== 0.95) nativeVideoRef.current.playbackRate = 0.95;
             } else {
-                // Normal sync
-                nativeVideoRef.current.playbackRate = 1.0;
+                // Normal sync (within 5 seconds tolerance is fine for streaming)
+                if (nativeVideoRef.current.playbackRate !== 1.0) nativeVideoRef.current.playbackRate = 1.0;
             }
         }
     }, [videoState.playedSeconds, videoState.seekVersion, isGDriveProxy, isPrivileged, isPlayerReady]);
