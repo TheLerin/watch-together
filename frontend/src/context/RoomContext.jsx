@@ -25,6 +25,10 @@ export const RoomProvider = ({ children }) => {
     const [queue, setQueue] = useState([]);
     const isKicked = useRef(false);
 
+    // Synchronous ref for socket guards
+    const videoStateRef = useRef(videoState);
+    useEffect(() => { videoStateRef.current = videoState; }, [videoState]);
+
     // BUG-11: Timeout ref so we can clear it once room_joined fires
     const restoreTimeoutRef = useRef(null);
 
@@ -274,23 +278,17 @@ export const RoomProvider = ({ children }) => {
         socket.emit('change_video', { roomId, ...newState });
     }, [roomId]);
 
-    // BUG-08: Moved socket.emit outside setState updater to avoid double-firing in React StrictMode
+    // BUG-08: Strictly guard emits against current state to prevent play/pause spam loops
     const playVideo = useCallback(() => {
-        setVideoState(prev => {
-            if (prev.isPlaying) return prev;
-            return { ...prev, isPlaying: true };
-        });
-        // Read current state and only emit if not already playing
-        // (we optimistically update above; server guards duplicate events too)
+        if (videoStateRef.current?.isPlaying) return;
+        setVideoState(prev => ({ ...prev, isPlaying: true }));
         socket.emit('play_video', { roomId });
     }, [roomId]);
 
-    // BUG-09: Moved socket.emit outside setState updater to avoid double-firing in React StrictMode
+    // BUG-09: Strictly guard emits against current state to prevent play/pause spam loops
     const pauseVideo = useCallback((playedSeconds) => {
-        setVideoState(prev => {
-            if (!prev.isPlaying) return prev;
-            return { ...prev, isPlaying: false, ...(playedSeconds !== undefined ? { playedSeconds } : {}) };
-        });
+        if (!videoStateRef.current?.isPlaying) return;
+        setVideoState(prev => ({ ...prev, isPlaying: false, ...(playedSeconds !== undefined ? { playedSeconds } : {}) }));
         socket.emit('pause_video', { roomId, playedSeconds });
     }, [roomId]);
 
@@ -300,8 +298,8 @@ export const RoomProvider = ({ children }) => {
     }, [roomId]);
 
     const seekVideo = useCallback((seconds) => {
-        // ISSUE-31: Also bump seekVersion locally so host state mirrors what viewers receive
-        setVideoState(prev => ({ ...prev, playedSeconds: seconds, seekVersion: (prev.seekVersion || 0) + 1 }));
+        // Fix 3: Do not double-increment seekVersion locally on the host; wait for server sync to avoid viewer divergence
+        setVideoState(prev => ({ ...prev, playedSeconds: seconds }));
         socket.emit('seek_video', { roomId, playedSeconds: seconds });
     }, [roomId]);
 

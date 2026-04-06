@@ -338,6 +338,7 @@ const VideoPlayer = () => {
         clearTimeout(playDebounceRef.current);
         clearTimeout(pauseDebounceRef.current);
         pauseDebounceRef.current = setTimeout(() => {
+            isSeekingRef.current = false;
             if (!isSeekingRef.current) pauseVideo(getTime());
         }, 200);
     };
