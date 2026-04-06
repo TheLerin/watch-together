@@ -260,14 +260,18 @@ const VideoPlayer = () => {
     // ── 4. GDrive play / pause control ────────────────────────────────────────
     useEffect(() => {
         if (!isGDriveProxy || !nativeVideoRef.current || !isPlayerReady) return;
+        
+        // Prevent infinite feedback loops by only dispatching if DOM is actually out of sync
         if (videoState.isPlaying) {
-            nativeVideoRef.current.play().catch((err) => {
-                if (err.name === 'NotAllowedError') {
-                    setAutoplayBlocked(true);
-                }
-            });
+            if (nativeVideoRef.current.paused) {
+                nativeVideoRef.current.play().catch((err) => {
+                    if (err.name === 'NotAllowedError') setAutoplayBlocked(true);
+                });
+            }
         } else {
-            nativeVideoRef.current.pause();
+            if (!nativeVideoRef.current.paused) {
+                nativeVideoRef.current.pause();
+            }
         }
     }, [videoState.isPlaying, isGDriveProxy, isPlayerReady]);
 
@@ -538,7 +542,8 @@ const VideoPlayer = () => {
                                         onCanPlay={() => {
                                             setIsPlayerReady(true);
                                             setPlayerError(null);
-                                            if (videoStateRef.current.isPlaying && nativeVideoRef.current) {
+                                            // Only force play if the server state demands it AND we aren't natively playing yet
+                                            if (videoStateRef.current.isPlaying && nativeVideoRef.current && nativeVideoRef.current.paused) {
                                                 nativeVideoRef.current.play().catch((err) => {
                                                     if (err.name === 'NotAllowedError') setAutoplayBlocked(true);
                                                 });
