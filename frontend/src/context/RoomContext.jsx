@@ -246,7 +246,7 @@ export const RoomProvider = ({ children }) => {
         const msg = {
             id: Date.now() + Math.random().toString(),
             text,
-            user: currentUser.nickname,
+            nickname: currentUser.nickname,
             role: currentUser.role,
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         };

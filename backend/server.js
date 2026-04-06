@@ -38,8 +38,18 @@ app.get('/', (req, res) => {
 const gdriveCache = new Map(); // id -> { url, cookieJar, timestamp }
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
-app.get('/api/proxy/gdrive', async (req, res) => {
+// Handle CORS preflight BEFORE the main handler so Express reaches it first
+app.options('/api/proxy/gdrive', (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Range');
+    res.sendStatus(204);
+});
+
+// FIX: app.all handles both GET and HEAD — browsers send HEAD first to check Content-Length
+app.all('/api/proxy/gdrive', async (req, res) => {
     const { id } = req.query;
+    if (!['GET', 'HEAD'].includes(req.method)) return res.sendStatus(405);
     if (!id) return res.status(400).send('Missing Google Drive file id');
 
     // Per-hop timeout in ms — prevents the server hanging indefinitely
@@ -54,11 +64,7 @@ app.get('/api/proxy/gdrive', async (req, res) => {
         res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
     };
 
-    // Handle OPTIONS preflight
-    if (req.method === 'OPTIONS') {
-        setCorsHeaders();
-        return res.sendStatus(204);
-    }
+    const isHead = req.method === 'HEAD';
 
     const streamResponse = (hop) => {
         const ct = hop.headers['content-type'] || 'video/mp4';
@@ -69,6 +75,11 @@ app.get('/api/proxy/gdrive', async (req, res) => {
         res.setHeader('Accept-Ranges', hop.headers['accept-ranges'] || 'bytes');
         if (hop.headers['content-range'])  res.setHeader('Content-Range',  hop.headers['content-range']);
         res.status(hop.status === 206 ? 206 : 200);
+        // FIX: HEAD requests must NOT pipe a body — only headers are returned
+        if (isHead) {
+            try { hop.data.destroy(); } catch (_) {}
+            return res.end();
+        }
         hop.data.pipe(res);
         req.on('close', () => { try { hop.data.destroy(); } catch (_) {} });
     };
@@ -88,7 +99,8 @@ app.get('/api/proxy/gdrive', async (req, res) => {
             if (req.headers.range) headers['Range'] = req.headers.range;
 
             const hop = await axios({
-                method: 'GET', url: cached.url, responseType: 'stream',
+                // FIX: Forward the actual request method (HEAD or GET) instead of hardcoding GET
+                method: req.method, url: cached.url, responseType: 'stream',
                 headers, maxRedirects: 0, validateStatus: s => s < 600, timeout: HOP_TIMEOUT_MS,
             });
             
@@ -489,6 +501,8 @@ io.on('connection', (socket) => {
             if (rooms[roomId]) {
                 rooms[roomId].videoState.playedSeconds = playedSeconds;
                 rooms[roomId].videoState.updatedAt = Date.now();
+                // FIX: Increment seekVersion so all clients know this is a deliberate seek, not drift
+                rooms[roomId].videoState.seekVersion = (rooms[roomId].videoState.seekVersion || 0) + 1;
                 socket.to(roomId).emit('video_seeked', playedSeconds);
             }
         }
