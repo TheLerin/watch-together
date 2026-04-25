@@ -249,8 +249,8 @@ const RoomLayout = () => {
                                             onClick={() => setShowUsersPanel(false)} />
                                         <motion.div initial={{ y:'100%' }} animate={{ y:0 }} exit={{ y:'100%' }}
                                             transition={{ type:'spring', damping:28, stiffness:300 }}
-                                            className="absolute inset-x-0 bottom-0 z-40 flex flex-col glass-card"
-                                            style={{ maxHeight:'72vh', borderRadius:'24px 24px 0 0' }}>
+                                            className="absolute inset-x-0 bottom-0 z-40 flex flex-col"
+                                            style={{ maxHeight:'72vh', borderRadius:'24px 24px 0 0', background: 'var(--bg-base)', borderTop: '1px solid var(--glass-border)' }}>
                                             <div className="flex items-center justify-between px-4 py-3 shrink-0" style={{ borderBottom:'1px solid var(--glass-border)' }}>
                                                 <h2 className="syne font-bold flex items-center gap-2" style={{ color:'var(--text)' }}>
                                                     <Users size={15} style={{ color:'var(--accent)' }}/> Members

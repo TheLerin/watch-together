@@ -82,13 +82,19 @@ function App() {
               position="bottom-center"
               toastOptions={{
                 style: {
-                  background: '#18181b',
-                  color: '#f4f4f5',
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  borderRadius: '12px',
-                  fontSize: '13px',
+                  background: 'var(--glass-bg)',
+                  color: 'var(--text)',
+                  border: '1px solid var(--glass-border)',
+                  borderTopColor: 'var(--glass-border-top)',
+                  backdropFilter: 'blur(var(--blur)) saturate(var(--saturate))',
+                  WebkitBackdropFilter: 'blur(var(--blur)) saturate(var(--saturate))',
+                  boxShadow: 'var(--glass-shadow)',
+                  borderRadius: '16px',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  padding: '12px 16px'
                 },
-                success: { iconTheme: { primary: '#a855f7', secondary: '#18181b' } },
+                success: { iconTheme: { primary: 'var(--text)', secondary: 'var(--accent)' } },
                 error:   { iconTheme: { primary: '#f87171', secondary: '#18181b' } },
               }}
             />

@@ -661,6 +661,21 @@ const VideoPlayer = () => {
                                             zIndex: 10, cursor: 'not-allowed'
                                         }} />
                                     )}
+                                    {/* Double Tap to Seek Zones */}
+                                    {isPrivileged && (
+                                        <>
+                                            <div style={{ position: 'absolute', top: '10%', bottom: '10%', left: 0, width: '30%', zIndex: 10 }}
+                                                onDoubleClick={() => {
+                                                    const t = nativeVideoRef.current?.currentTime || 0;
+                                                    seekVideo(Math.max(0, t - 10));
+                                                }} />
+                                            <div style={{ position: 'absolute', top: '10%', bottom: '10%', right: 0, width: '30%', zIndex: 10 }}
+                                                onDoubleClick={() => {
+                                                    const t = nativeVideoRef.current?.currentTime || 0;
+                                                    seekVideo(t + 10);
+                                                }} />
+                                        </>
+                                    )}
                                     {/* Autoplay Blocked Overlay */}
                                     {autoplayBlocked && (
                                         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm">
@@ -752,6 +767,21 @@ const VideoPlayer = () => {
                                             position: 'absolute', bottom: 0, left: 0, right: 0, height: '48px',
                                             zIndex: 10, cursor: 'not-allowed'
                                         }} />
+                                    )}
+                                    {/* Double Tap to Seek Zones */}
+                                    {isPrivileged && (
+                                        <>
+                                            <div style={{ position: 'absolute', top: '10%', bottom: '10%', left: 0, width: '30%', zIndex: 10 }}
+                                                onDoubleClick={() => {
+                                                    const t = playerRef.current?.getCurrentTime() || 0;
+                                                    seekVideo(Math.max(0, t - 10));
+                                                }} />
+                                            <div style={{ position: 'absolute', top: '10%', bottom: '10%', right: 0, width: '30%', zIndex: 10 }}
+                                                onDoubleClick={() => {
+                                                    const t = playerRef.current?.getCurrentTime() || 0;
+                                                    seekVideo(t + 10);
+                                                }} />
+                                        </>
                                     )}
 
                                     {/* BUG-H FIX: Autoplay-blocked overlay for ReactPlayer (archive + direct).
