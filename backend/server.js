@@ -27,7 +27,7 @@ const io = new Server(server, {
 const rooms = {};
 
 app.get('/', (req, res) => {
-    res.send('WatchSync API is running');
+    res.send('Watchly API is running');
 });
 
 // ── Google Drive Proxy ──────────────────────────────────────────────────────

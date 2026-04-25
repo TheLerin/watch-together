@@ -168,8 +168,8 @@ const LandingPage = () => {
                 className="relative z-10 flex items-center justify-between px-6 sm:px-10 py-5 glass-header"
                 style={{ borderTop: 'none', borderLeft: 'none', borderRight: 'none' }}>
                 <div className="flex items-center gap-3">
-                    <img src="/logo.png" alt="WatchSync Logo" className="w-10 h-auto theme-invert transition-all" />
-                    <span className="syne font-bold text-xl tracking-tight" style={{ color: 'var(--text)' }}>WatchSync</span>
+                    <img src="/logo.png" alt="Watchly Logo" className="w-10 h-auto theme-invert transition-all" />
+                    <span className="syne font-bold text-xl tracking-tight" style={{ color: 'var(--text)' }}>Watchly</span>
                 </div>
                 <div className="flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium glass-panel"
                      style={{ color: 'var(--text-sub)', borderRadius: 50 }}>
@@ -333,7 +333,7 @@ const LandingPage = () => {
             <footer className="relative z-10 glass-header text-center py-5 px-6"
                     style={{ borderTop: '1px solid var(--glass-border)', borderBottom: 'none', borderLeft: 'none', borderRight: 'none' }}>
                 <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                    WatchSync &copy; {new Date().getFullYear()} — Free, open, and forever in sync.
+                    Watchly &copy; {new Date().getFullYear()} — Free, open, and forever in sync.
                 </p>
             </footer>
         </div>

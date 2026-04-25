@@ -4,7 +4,7 @@
 /* Fonts loaded via <link> in index.html: Syne + DM Sans */
 
 /* ═══════════════════════════════════════════════════════════════════
-   WATCHSYNC — PREMIUM GLASSMORPHISM DESIGN SYSTEM v2
+   WATCHLY — PREMIUM GLASSMORPHISM DESIGN SYSTEM v2
    Themes: glass-dark (default) · glass-light
    ═══════════════════════════════════════════════════════════════════ */
 
@@ -88,8 +88,17 @@
   --glow-lg:            0 0 30px rgba(0,0,0,0.05);
 }
 
+/* Logo visibility fixes for both themes */
+/* Dark theme (default): invert so dragon is white, screen blend erases white bg */
+.theme-invert {
+  filter: invert(1);
+  mix-blend-mode: screen;
+}
+
+/* Light theme: no invert needed (black dragon), multiply blend erases white bg */
 :root.theme-glass-light .theme-invert {
-  filter: invert(1) hue-rotate(180deg);
+  filter: none;
+  mix-blend-mode: multiply;
 }
 
 /* ═══════════════════════════════════════════════════════════════════

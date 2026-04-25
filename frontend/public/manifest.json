@@ -1,6 +1,6 @@
 {
-  "name": "WatchSync",
-  "short_name": "WatchSync",
+  "name": "Watchly",
+  "short_name": "Watchly",
   "description": "Watch videos together in perfect sync.",
   "start_url": "/",
   "display": "standalone",

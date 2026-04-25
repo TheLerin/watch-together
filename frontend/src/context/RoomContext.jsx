@@ -80,7 +80,7 @@ export const RoomProvider = ({ children }) => {
             toast.error('You have been kicked from the room.', { duration: 4000 });
             // ISSUE-32: Use a custom event so App.jsx can call navigate() via React Router
             // instead of a full page reload via window.location.href
-            setTimeout(() => window.dispatchEvent(new CustomEvent('watchsync:kicked')), 300);
+            setTimeout(() => window.dispatchEvent(new CustomEvent('watchly:kicked')), 300);
         }
 
         const addSystemMessage = (text) => {

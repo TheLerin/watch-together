@@ -18,7 +18,7 @@ class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, info) {
-    console.error('WatchSync caught an error:', error, info);
+    console.error('Watchly caught an error:', error, info);
   }
 
   render() {
@@ -52,15 +52,15 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-// ISSUE-32: Handles the 'watchsync:kicked' custom event fired by RoomContext,
+// ISSUE-32: Handles the 'watchly:kicked' custom event fired by RoomContext,
 // using React Router's navigate() instead of a hard page reload.
 // Must be inside <Router> to access useNavigate.
 function KickHandler() {
   const navigate = useNavigate();
   useEffect(() => {
     const handler = () => navigate('/', { replace: true });
-    window.addEventListener('watchsync:kicked', handler);
-    return () => window.removeEventListener('watchsync:kicked', handler);
+    window.addEventListener('watchly:kicked', handler);
+    return () => window.removeEventListener('watchly:kicked', handler);
   }, [navigate]);
   return null;
 }

@@ -10,7 +10,7 @@ export const THEME_META = {
 
 export const ThemeProvider = ({ children }) => {
     const [theme, setThemeState] = useState(() => {
-        const s = localStorage.getItem('watchsync-theme');
+        const s = localStorage.getItem('watchly-theme');
         if (s === 'light' || s === 'glass-light') return 'glass-light';
         return 'glass-dark'; // default
     });
@@ -18,7 +18,7 @@ export const ThemeProvider = ({ children }) => {
     const setTheme = (t) => {
         if (!THEME_META[t]) t = 'glass-dark';
         setThemeState(t);
-        localStorage.setItem('watchsync-theme', t);
+        localStorage.setItem('watchly-theme', t);
     };
 
     useEffect(() => {
