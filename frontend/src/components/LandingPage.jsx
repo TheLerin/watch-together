@@ -254,12 +254,11 @@ const LandingPage = () => {
                             <Zap size={12} fill="currentColor" />
                             Free · No account required · Open source
                         </span>
-                        <h1 className="sr-only">
-                            Watch. Together. In Sync.
+                        <h1 className="syne text-5xl sm:text-6xl lg:text-[5.5rem] xl:text-[6rem] font-extrabold leading-[1.05] tracking-tight" style={{ color: 'var(--text)' }}>
+                            Watch.<br />
+                            <span className="text-gradient-animated">Together.</span><br />
+                            In Sync.
                         </h1>
-                        <div className="w-full h-[300px] sm:h-[450px] lg:h-[550px] relative pointer-events-auto -ml-2 lg:-ml-6 flex justify-center lg:justify-start">
-                            <iframe src='https://my.spline.design/distortingtypography-5W57GVeymNy7aixEVIHtRjd1/' frameBorder='0' width='100%' height='100%' title="3D Typography" className="max-w-full"></iframe>
-                        </div>
                     </motion.div>
 
                     <motion.p {...fadeUp(0.35)}
