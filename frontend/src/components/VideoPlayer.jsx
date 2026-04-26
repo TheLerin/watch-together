@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import ReactPlayer from 'react-player/lazy';
+import ReactPlayer from 'react-player';
 import { useRoom } from '../context/RoomContext';
 import { Play, Link as LinkIcon, Lock, AlertCircle, Plus, ChevronDown, Mic, Subtitles as SubtitlesIcon, FolderOpen, Maximize, Minimize } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
