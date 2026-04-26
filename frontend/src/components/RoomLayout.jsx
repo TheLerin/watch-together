@@ -173,9 +173,8 @@ const RoomLayout = () => {
 
                     {/* Video */}
                     <div className={isDesktop ? 'flex-1 min-h-0 min-w-0 p-3 flex flex-col' : isPortrait ? 'relative flex-shrink-0' : 'w-full shrink-0'}
-                         style={isDesktop ? {} : isPortrait ? { height:`${videoH}%`, background:'#000' } : { height:'55vw', maxHeight:'60vh' }}>
-                        <div className={isDesktop ? 'flex-1 min-h-0 relative overflow-hidden video-pulse-border' : 'absolute inset-0 w-full h-full'}
-                             style={isDesktop ? { borderRadius:20, border:'1px solid var(--glass-border)', background:'#000' } : {}}>
+                         style={isDesktop ? {} : isPortrait ? { height:`${videoH}%` } : { height:'55vw', maxHeight:'60vh' }}>
+                        <div className={isDesktop ? 'flex-1 min-h-0 relative flex flex-col' : 'absolute inset-0 w-full h-full'}>
                             <VideoPlayer />
                             {!isDesktop && isPortrait && (
                                 <div className="absolute right-3 bottom-10 flex flex-col gap-3 z-20">
