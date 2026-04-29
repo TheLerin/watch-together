@@ -123,11 +123,28 @@ export const RoomProvider = ({ children }) => {
                 ...(seekVersion !== undefined ? { seekVersion } : {})
             }));
         }
-        function onVideoSeeked(playedSeconds) {
-            setVideoState(prev => ({ ...prev, playedSeconds, updatedAt: Date.now(), seekVersion: (prev.seekVersion || 0) + 1 }));
+        // FIX #4 + #5: Server now sends { playedSeconds, seekVersion } instead of
+        // just playedSeconds. Accept the server's seekVersion directly instead of
+        // incrementing locally (which caused double-increment drift).
+        function onVideoSeeked(data) {
+            // Backward-compatible: accept both old (number) and new (object) formats
+            const playedSeconds = typeof data === 'number' ? data : data.playedSeconds;
+            const seekVersion = typeof data === 'object' && data.seekVersion !== undefined
+                ? data.seekVersion
+                : undefined;
+            setVideoState(prev => ({
+                ...prev,
+                playedSeconds,
+                updatedAt: Date.now(),
+                seekVersion: seekVersion !== undefined ? seekVersion : (prev.seekVersion || 0) + 1
+            }));
         }
         function onQueueUpdated(newQueue) {
             setQueue(newQueue);
+        }
+        // Handle server-side validation errors (room full, invalid room code, etc.)
+        function onErrorMessage({ message }) {
+            toast.error(message || 'Server error', { duration: 4000 });
         }
 
         socket.on('connect', onConnect);
@@ -144,6 +161,7 @@ export const RoomProvider = ({ children }) => {
         socket.on('video_progress', onVideoProgress);
         socket.on('video_seeked', onVideoSeeked);
         socket.on('queue_updated', onQueueUpdated);
+        socket.on('error_message', onErrorMessage);
 
         return () => {
             socket.off('connect', onConnect);
@@ -160,7 +178,31 @@ export const RoomProvider = ({ children }) => {
             socket.off('video_progress', onVideoProgress);
             socket.off('video_seeked', onVideoSeeked);
             socket.off('queue_updated', onQueueUpdated);
+            socket.off('error_message', onErrorMessage);
         };
+    }, []);
+
+    // FIX #16: When Socket.IO reconnects after a drop, automatically re-join the room
+    // so sync resumes without the user having to manually rejoin.
+    useEffect(() => {
+        const handleReconnect = () => {
+            const saved = sessionStorage.getItem('watchTogetherSession');
+            if (saved) {
+                try {
+                    const { roomId: savedRoomId, nickname, userId } = JSON.parse(saved);
+                    if (savedRoomId && nickname) {
+                        console.log('Socket reconnected — auto re-joining room', savedRoomId);
+                        socket.emit('join_room', { roomId: savedRoomId, nickname, userId });
+                    }
+                } catch (e) {
+                    console.error('Failed to auto-rejoin on reconnect', e);
+                }
+            }
+        };
+        // 'connect' fires on both initial connect AND reconnects
+        // We only want reconnects, so use the io-specific event
+        socket.io.on('reconnect', handleReconnect);
+        return () => socket.io.off('reconnect', handleReconnect);
     }, []);
 
     // --- Auto-reconnect from sessionStorage ---
@@ -241,6 +283,8 @@ export const RoomProvider = ({ children }) => {
         setUsers([]);
         setMessages([]);
         setQueue([]);
+        // FIX #13: Reset videoState so stale video doesn't flash when joining a new room
+        setVideoState({ url: '', magnetURI: '', isPlaying: false, playedSeconds: 0, updatedAt: 0, seekVersion: 0 });
         isKicked.current = false;
     }, [roomId]);
 

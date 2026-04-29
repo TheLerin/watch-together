@@ -26,6 +26,18 @@ const io = new Server(server, {
 // rooms[roomId] = { users: [], videoState: {...}, queue: [], kickedUserIds: Set }
 const rooms = {};
 
+// P2: Periodically evict stale rooms where all users disconnected uncleanly.
+// Without this, crashed browser sessions leave ghost rooms forever.
+setInterval(() => {
+    for (const [roomId, room] of Object.entries(rooms)) {
+        const hasConnected = room.users.some(u => u.connected);
+        if (!hasConnected) {
+            console.log(`GC: cleaning stale room ${roomId}`);
+            delete rooms[roomId];
+        }
+    }
+}, 5 * 60 * 1000).unref();
+
 app.get('/', (req, res) => {
     res.send('Watchly API is running');
 });
@@ -152,13 +164,18 @@ app.all('/api/proxy/gdrive', async (req, res) => {
                 'Accept':     'video/mp4,video/webm,video/*;q=0.9,*/*;q=0.8',
             };
             if (cookieJar)         headers['Cookie'] = cookieJar;
-            // Forward the client's Range header so seeking works
-            if (req.headers.range) headers['Range']  = req.headers.range;
+            // FIX #1: Only forward Range on the final content hop.
+            // Sending Range during 302/303 redirects can cause 416 errors.
+            // We track whether we've seen at least one redirect to know
+            // we're past the entry point. Range is always safe on cache hits
+            // and after the first redirect resolves to the real file URL.
 
             let hop;
             try {
+                // FIX #2: Forward the actual request method (HEAD or GET)
+                // so HEAD preflight doesn't download the entire file body.
                 hop = await axios({
-                    method: 'GET', url, responseType: 'stream',
+                    method: isHead ? 'HEAD' : 'GET', url, responseType: 'stream',
                     headers, maxRedirects: 0,
                     validateStatus: s => s < 600,
                     timeout: HOP_TIMEOUT_MS,
@@ -187,6 +204,9 @@ app.all('/api/proxy/gdrive', async (req, res) => {
             if (status >= 300 && status < 400 && loc) {
                 try { hop.data.destroy(); } catch (_) {}
                 url = loc.startsWith('http') ? loc : `https://drive.google.com${loc}`;
+                // FIX #1: Now that we've followed at least one redirect,
+                // the next hop targets the real file — attach Range header.
+                if (req.headers.range && !headers['Range']) headers['Range'] = req.headers.range;
                 console.log(`GDrive hop (${status}) → ${url.slice(0, 100)}`);
                 continue;
             }
@@ -285,10 +305,29 @@ app.use((err, req, res, next) => {
 // S3: Shared rate-limit map keyed by userId so multi-tab users share one bucket
 const messageRateLimitMap = new Map(); // userId -> lastMessageTime
 
+// FIX #8: Periodically purge stale rate-limit entries so the Map doesn't
+// grow unbounded when users crash without clean disconnects.
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, time] of messageRateLimitMap) {
+        if (now - time > 60000) messageRateLimitMap.delete(key);
+    }
+}, 60 * 1000).unref();
+
 io.on('connection', (socket) => {
     console.log('A user connected:', socket.id);
 
     socket.on('join_room', ({ roomId, nickname, userId }) => {
+        // FIX #18: Validate roomId format to prevent memory pollution
+        if (!roomId || typeof roomId !== 'string' || roomId.length > 20 || !/^[a-zA-Z0-9_-]+$/.test(roomId)) {
+            socket.emit('error_message', { message: 'Invalid room code format.' });
+            return;
+        }
+        // Sanitize nickname: strip HTML tags, limit length, provide fallback
+        nickname = (typeof nickname === 'string' ? nickname : '').replace(/<[^>]*>/g, '').trim().slice(0, 24) || 'Anonymous';
+        // Validate userId
+        if (!userId || typeof userId !== 'string') userId = Math.random().toString(36).substring(2, 15);
+
         socket.join(roomId);
 
         if (!rooms[roomId]) {
@@ -325,6 +364,12 @@ io.on('connection', (socket) => {
             user = existingUser;
             console.log(`${nickname} (${socket.id}) rejoined room ${roomId} as ${user.role}`);
         } else {
+            // Limit max users per room to prevent abuse
+            const connectedCount = rooms[roomId].users.filter(u => u.connected).length;
+            if (connectedCount >= 50) {
+                socket.emit('error_message', { message: 'Room is full (max 50 users).' });
+                return;
+            }
             // New connection
             const role = rooms[roomId].users.length === 0 ? 'Host' : 'Viewer';
             user = { id: socket.id, userId, nickname, role, connected: true };
@@ -354,6 +399,12 @@ io.on('connection', (socket) => {
         const key = socket.userId || socket.id;
         if (now - (messageRateLimitMap.get(key) || 0) < 500) return; // silently drop spam
         messageRateLimitMap.set(key, now);
+
+        // Validate message payload
+        if (!message || typeof message.text !== 'string') return;
+        // Server-side length enforcement (client also limits to 500)
+        message.text = message.text.slice(0, 500);
+        if (!message.text.trim()) return; // reject empty messages
         
         // Store in room's chat history so it survives page refreshes
         if (rooms[roomId]) {
@@ -405,9 +456,15 @@ io.on('connection', (socket) => {
         }
     });
 
+    // FIX #12: kick_user now also looks up by userId so reconnected users
+    // (who got a new socket ID) can still be kicked.
     socket.on('kick_user', ({ roomId, targetId }) => {
         const sender = getUserInRoom(socket.id, roomId);
-        const target = getUserInRoom(targetId, roomId);
+        // Try socket-ID lookup first, then fall back to userId lookup
+        let target = getUserInRoom(targetId, roomId);
+        if (!target && rooms[roomId]) {
+            target = rooms[roomId].users.find(u => u.userId === targetId);
+        }
         if (!sender || !target) return;
         const canKick = sender.role === 'Host' || (sender.role === 'Moderator' && target.role === 'Viewer');
         if (canKick) {
@@ -415,9 +472,7 @@ io.on('connection', (socket) => {
             if (rooms[roomId]) rooms[roomId].kickedUserIds.add(target.userId);
 
             // B1 FIX: Fetch the actual Socket object and emit directly.
-            // Using io.to(targetId) works when targetId is the *current* socket ID,
-            // but if the user reconnected the ID has changed. The socket ref is authoritative.
-            const targetSocket = io.sockets.sockets.get(targetId);
+            const targetSocket = io.sockets.sockets.get(target.id);
             if (targetSocket) {
                 targetSocket.emit('user_kicked');
                 targetSocket.leave(roomId);
@@ -425,9 +480,9 @@ io.on('connection', (socket) => {
             }
 
             if (rooms[roomId] && rooms[roomId].users) {
-                rooms[roomId].users = rooms[roomId].users.filter(u => u.id !== targetId);
+                rooms[roomId].users = rooms[roomId].users.filter(u => u.id !== target.id);
             }
-            io.to(roomId).emit('user_left', targetId);
+            io.to(roomId).emit('user_left', target.id);
 
             if (rooms[roomId] && rooms[roomId].users.length === 0) {
                 delete rooms[roomId];
@@ -474,8 +529,14 @@ io.on('connection', (socket) => {
     socket.on('add_to_queue', ({ roomId, url, magnetURI, label }) => {
         const sender = getUserInRoom(socket.id, roomId);
         if (sender && (sender.role === 'Host' || sender.role === 'Moderator')) {
+            // FIX #14: Validate URL scheme — same check as change_video (S4)
+            if (url && !/^https?:\/\//i.test(url)) {
+                console.warn(`add_to_queue: rejected non-HTTP url from ${sender.nickname}`);
+                return;
+            }
             if (rooms[roomId]) {
-                const item = { id: Date.now().toString(), url: url || '', magnetURI: magnetURI || '', label: label || url || 'Unnamed' };
+                // FIX #11: Use randomized ID to prevent collisions when two users add in the same ms
+                const item = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, url: url || '', magnetURI: magnetURI || '', label: label || url || 'Unnamed' };
                 rooms[roomId].queue.push(item);
                 io.to(roomId).emit('queue_updated', rooms[roomId].queue);
                 console.log(`${sender.nickname} added to queue in ${roomId}: ${item.label}`);
@@ -542,7 +603,12 @@ io.on('connection', (socket) => {
                 rooms[roomId].videoState.updatedAt = Date.now();
                 // FIX: Increment seekVersion so all clients know this is a deliberate seek, not drift
                 rooms[roomId].videoState.seekVersion = (rooms[roomId].videoState.seekVersion || 0) + 1;
-                socket.to(roomId).emit('video_seeked', playedSeconds);
+                // FIX #5: Broadcast seekVersion so viewers accept it directly
+                // instead of blindly incrementing their own copy.
+                socket.to(roomId).emit('video_seeked', {
+                    playedSeconds,
+                    seekVersion: rooms[roomId].videoState.seekVersion
+                });
             }
         }
     });

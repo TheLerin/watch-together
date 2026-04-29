@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { LogOut, Play, Settings, Copy, Users, ChevronDown, ChevronUp, MessageSquare, X, GripHorizontal, Check, Menu } from 'lucide-react';
+import { LogOut, Play, Settings, Copy, Users, ChevronDown, ChevronUp, MessageSquare, X, GripHorizontal, Check, Menu, Wifi, WifiOff } from 'lucide-react';
 import ChatUI from './ChatUI';
 import UserQueueSidebar from './UserQueueSidebar';
 import VideoPlayer from './VideoPlayer';
@@ -80,7 +80,7 @@ const ThemePicker = ({ theme, setTheme, onClose }) => (
     </motion.div>
 );
 
-const Header = ({ roomId, theme, setTheme, leaveRoom, navigate }) => {
+const Header = ({ roomId, theme, setTheme, leaveRoom, navigate, isConnected }) => {
     const [showSettings, setShowSettings] = useState(false);
     const [copied, setCopied] = useState(false);
     const ref = useRef(null);
@@ -114,6 +114,13 @@ const Header = ({ roomId, theme, setTheme, leaveRoom, navigate }) => {
                 </button>
             </div>
             <div className="flex items-center gap-2">
+                {/* Connection status indicator */}
+                <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-medium transition-all ${isConnected ? 'opacity-0 hover:opacity-100' : 'opacity-100 animate-pulse'}`}
+                     style={{ background: isConnected ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.12)', color: isConnected ? '#22c55e' : '#f87171', border: `1px solid ${isConnected ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.25)'}` }}
+                     title={isConnected ? 'Connected' : 'Reconnecting...'}>
+                    {isConnected ? <Wifi size={11} /> : <WifiOff size={11} />}
+                    <span className="hidden sm:inline">{isConnected ? 'Connected' : 'Reconnecting…'}</span>
+                </div>
                 <div className="relative" ref={ref}>
                     <button onClick={() => setShowSettings(s=>!s)} className="p-2 rounded-lg transition-all"
                         style={showSettings ? { background:'var(--glass-hover)', color:'var(--text)', border:'1px solid var(--glass-border)' } : { color:'var(--text-sub)' }}>
@@ -136,7 +143,7 @@ const Header = ({ roomId, theme, setTheme, leaveRoom, navigate }) => {
 const RoomLayout = () => {
     const { roomId }   = useParams();
     const navigate     = useNavigate();
-    const { currentUser, leaveRoom, users, isRestoringSession } = useRoom();
+    const { currentUser, leaveRoom, users, isRestoringSession, isConnected } = useRoom();
     const { theme, setTheme } = useTheme();
     const [showUsersPanel, setShowUsersPanel] = useState(false);
     const [showMobileChat, setShowMobileChat] = useState(false);
@@ -168,7 +175,7 @@ const RoomLayout = () => {
         <div className="h-[100dvh] w-full flex flex-col overflow-hidden" style={{ background:'var(--bg-base)' }}>
             <BackgroundLayers />
             <div className="relative z-10 flex flex-col h-full w-full max-w-[1800px] mx-auto">
-                <Header roomId={roomId} theme={theme} setTheme={setTheme} leaveRoom={leaveRoom} navigate={navigate} />
+                <Header roomId={roomId} theme={theme} setTheme={setTheme} leaveRoom={leaveRoom} navigate={navigate} isConnected={isConnected} />
                 <div className={`flex-1 min-h-0 ${isDesktop ? 'flex' : isPortrait ? 'relative flex flex-col overflow-hidden' : 'flex flex-col'}`}>
 
                     {/* Video */}

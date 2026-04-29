@@ -25,7 +25,9 @@ export const BackgroundLayers = () => {
         <>
             <div className="bg-base-layer" />
             <div className="fixed inset-0 z-[1] pointer-events-none overflow-hidden">
-                <video autoPlay loop muted playsInline className="absolute min-w-full min-h-full object-cover" style={{ opacity: isDark ? 0.35 : 0.15 }}>
+                <video autoPlay loop muted playsInline className="absolute min-w-full min-h-full object-cover"
+                    style={{ opacity: isDark ? 0.35 : 0.15 }}
+                    onError={(e) => { e.target.style.display = 'none'; }}>
                     <source src="/bg-video.mp4" type="video/mp4" />
                 </video>
                 <div className="absolute inset-0" style={{ background: isDark ? 'radial-gradient(circle at center, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.8) 100%)' : 'radial-gradient(circle at center, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0.9) 100%)' }} />

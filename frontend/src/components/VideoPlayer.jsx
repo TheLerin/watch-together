@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import ReactPlayer from 'react-player';
 import { useRoom } from '../context/RoomContext';
-import { Play, Link as LinkIcon, Lock, AlertCircle, Plus, ChevronDown, Mic, Subtitles as SubtitlesIcon, FolderOpen, Maximize, Minimize } from 'lucide-react';
+import { Play, Link as LinkIcon, Lock, AlertCircle, Plus, ChevronDown, Mic, Subtitles as SubtitlesIcon, FolderOpen, Maximize, Minimize, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 
@@ -162,6 +162,9 @@ const VideoPlayer = () => {
     const videoStateRef = useRef(videoState);
     useEffect(() => { videoStateRef.current = videoState; }, [videoState]);
 
+    // FIX #15: ref for the track toolbar so we can detect outside clicks
+    const trackToolbarRef = useRef(null);
+
     // ── State ─────────────────────────────────────────────────────────────────
     const [inputUrl, setInputUrl]           = useState('');
     const [isPlayerReady, setIsPlayerReady] = useState(false);
@@ -180,6 +183,18 @@ const VideoPlayer = () => {
         const handleFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
         document.addEventListener('fullscreenchange', handleFullscreenChange);
         return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    }, []);
+
+    // FIX #15: Close subtitle/audio menus when clicking outside the track toolbar
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (trackToolbarRef.current && !trackToolbarRef.current.contains(e.target)) {
+                setShowSubMenu(false);
+                setShowAudioMenu(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
     const toggleFullscreen = () => {
@@ -246,8 +261,10 @@ const VideoPlayer = () => {
 
     // ── 3. Drift correction – GDrive native video viewers ────────────────────
     // Guard with isPlayerReady so we don't seek before video is loaded
+    // FIX #6: Also guard with isBufferingRef — same protection as ReactPlayer path
     useEffect(() => {
         if (!isGDriveProxy || isPrivileged || !nativeVideoRef.current || !isPlayerReady) return;
+        if (isBufferingRef.current) return; // FIX #6: skip during buffer stall
         const stateTime   = videoState.playedSeconds || 0;
         const currentTime = nativeVideoRef.current.currentTime || 0;
         const seekVer     = videoState.seekVersion ?? 0;
@@ -409,6 +426,28 @@ const VideoPlayer = () => {
         }, 300);
     }, [seekVideo]);
 
+    // ── Keyboard shortcuts (host/mod) ─────────────────────────────────────
+    useEffect(() => {
+        if (!isPrivileged) return;
+        const handleKeyDown = (e) => {
+            // Don't capture keys when typing in an input/textarea
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            if (e.key === ' ' || e.key === 'Spacebar') {
+                e.preventDefault();
+                if (videoStateRef.current.isPlaying) {
+                    const t = isGDriveProxy
+                        ? nativeVideoRef.current?.currentTime || 0
+                        : playerRef.current?.getCurrentTime?.() || 0;
+                    pauseVideo(t);
+                } else {
+                    playVideo();
+                }
+            }
+        };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [isPrivileged, isGDriveProxy, playVideo, pauseVideo]);
+
     const handleLoad = async (e) => {
         e.preventDefault();
         if (!isPrivileged || !inputUrl.trim()) return;
@@ -535,7 +574,7 @@ const VideoPlayer = () => {
 
             {/* ── Track toolbar ─────────────────────────────────────────── */}
             {hasContent && (subtitleTracks.length > 0 || audioTracks.length > 0 || isPrivileged) && (
-                <div className="flex gap-3 items-center flex-shrink-0 flex-wrap p-2 rounded-xl"
+                <div ref={trackToolbarRef} className="flex gap-3 items-center flex-shrink-0 flex-wrap p-2 rounded-xl"
                     style={{ background: 'var(--panel-bg)', border: '1px solid var(--border-color)' }}>
                     <span className="text-xs font-semibold text-gray-400">Tracks:</span>
                     {subtitleTracks.length > 0 && (
@@ -648,16 +687,19 @@ const VideoPlayer = () => {
                                         onPause={() => { if (!isPrivileged) return; debouncePause(() => nativeVideoRef.current?.currentTime || 0); }}
                                         onSeeking={() => { if (!isPrivileged) return; startSeekGuard(); }}
                                         onSeeked={() => { if (!isPrivileged) return; endSeekGuard(() => nativeVideoRef.current?.currentTime || 0); }}
-                                        // Q5: Empty onTimeUpdate removed — host sync runs via
-                                        // the setInterval in effect #6, not this event.
+                                        // FIX #6: Track buffering state on native <video> so drift
+                                        // correction skips during stalls (same as ReactPlayer path).
+                                        onWaiting={() => { isBufferingRef.current = true; }}
+                                        onPlaying={() => { isBufferingRef.current = false; }}
                                         onError={() => {
                                             setPlayerError('Could not load Google Drive video. Make sure the file is shared as "Anyone with the link" in Google Drive.');
                                         }}
                                     />
                                     {/* Transparent overlay blocks seekbar for viewers so they cannot desync */}
+                                    {/* FIX #10: Increased from 48px to 64px to cover Firefox/Safari control bars */}
                                     {!isPrivileged && (
                                         <div style={{
-                                            position: 'absolute', bottom: 0, left: 0, right: 0, height: '48px',
+                                            position: 'absolute', bottom: 0, left: 0, right: 0, height: '64px',
                                             zIndex: 10, cursor: 'not-allowed'
                                         }} />
                                     )}
@@ -747,9 +789,10 @@ const VideoPlayer = () => {
                                         Archive viewers have controls={true} so they can click play,
                                         but this overlay prevents them from dragging the seekbar
                                         independently (which would desync them from the host). */}
+                                    {/* FIX #10: Increased from 48px to 64px for cross-browser coverage */}
                                     {isArchive && !isPrivileged && (
                                         <div style={{
-                                            position: 'absolute', bottom: 0, left: 0, right: 0, height: '48px',
+                                            position: 'absolute', bottom: 0, left: 0, right: 0, height: '64px',
                                             zIndex: 10, cursor: 'not-allowed'
                                         }} />
                                     )}
@@ -784,6 +827,15 @@ const VideoPlayer = () => {
                                 <div className="absolute inset-0 flex flex-col items-center justify-center z-20 bg-black/90 px-6">
                                     <AlertCircle size={36} className="text-red-400 mb-3" />
                                     <p className="text-gray-200 text-sm text-center font-medium mb-3">{playerError}</p>
+                                    {/* Retry button */}
+                                    {isPrivileged && rawUrl && (
+                                        <button
+                                            onClick={() => { setPlayerError(null); loadVideo(rawUrl); }}
+                                            className="flex items-center gap-2 px-4 py-2 mb-4 rounded-xl text-sm font-semibold transition-all hover:scale-105"
+                                            style={{ background: 'var(--glass-bg-strong)', color: 'var(--text)', border: '1px solid var(--glass-border)' }}>
+                                            <RefreshCw size={14} /> Retry
+                                        </button>
+                                    )}
                                     {isGDriveProxy && (
                                         <div className="border border-blue-500/30 bg-blue-500/10 rounded-xl p-4 text-xs text-blue-200 max-w-sm text-left space-y-1">
                                             <p className="font-semibold text-blue-300 mb-2">How to fix Google Drive sharing:</p>
