@@ -32,7 +32,7 @@ function useIsDesktop() {
     return v;
 }
 
-function useDragResize(def = 52) {
+function useDragResize(def = 45) {
     const [pct, setPct] = useState(def);
     const sY = useRef(null), sP = useRef(null), pRef = useRef(def);
     useEffect(() => { pRef.current = pct; }, [pct]);
@@ -185,12 +185,13 @@ const RoomLayout = () => {
                         <div className={isDesktop ? 'flex-1 min-h-0 relative flex flex-col' : 'absolute inset-0 w-full h-full'}>
                             <VideoPlayer />
                             {!isDesktop && isPortrait && (
-                                <div className="absolute right-3 bottom-10 flex flex-col gap-3 z-20">
+                                <div className="absolute right-3 flex flex-col gap-3 z-20"
+                                     style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 56px)' }}>
                                     {[{ icon:<Menu size={19}/>, label:'Members', fn:() => setShowUsersPanel(true) },
                                       { icon:<MessageSquare size={19}/>, label:'Chat', fn:() => setShowMobileChat(true) }].map(b => (
                                         <button key={b.label} onClick={b.fn} className="flex flex-col items-center gap-1">
                                             <div className="w-11 h-11 rounded-full flex items-center justify-center text-white"
-                                                 style={{ background:'rgba(0,0,0,0.60)', border:'1px solid rgba(255,255,255,0.20)', backdropFilter:'blur(10px)' }}>{b.icon}</div>
+                                                 style={{ background:'rgba(0,0,0,0.65)', border:'1px solid rgba(255,255,255,0.22)', backdropFilter:'blur(12px)', WebkitBackdropFilter:'blur(12px)' }}>{b.icon}</div>
                                             <span className="text-white text-[10px] font-medium" style={{ textShadow:'0 1px 4px rgba(0,0,0,0.9)' }}>{b.label}</span>
                                         </button>
                                     ))}
@@ -234,7 +235,14 @@ const RoomLayout = () => {
                                 {showMobileChat && (
                                     <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
                                         className="absolute bottom-0 inset-x-0 flex flex-col z-30 glass-panel"
-                                        style={{ height:`${heightPct}%`, borderTop:'1px solid var(--glass-border)', borderRadius: '24px 24px 0 0', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)' }}>
+                                        style={{
+                                            height:`${heightPct}%`,
+                                            borderTop:'1px solid var(--glass-border)',
+                                            borderRadius: '24px 24px 0 0',
+                                            backdropFilter: 'blur(20px)',
+                                            WebkitBackdropFilter: 'blur(20px)',
+                                            paddingBottom: 'env(safe-area-inset-bottom, 0px)'
+                                        }}>
                                         <div className="flex items-center justify-between px-4 py-2 cursor-row-resize select-none shrink-0"
                                              style={{ borderBottom:'1px solid var(--glass-border)' }}
                                              onMouseDown={onDragStart} onTouchStart={onDragStart}>
@@ -258,7 +266,14 @@ const RoomLayout = () => {
                                         <motion.div initial={{ y:'100%' }} animate={{ y:0 }} exit={{ y:'100%' }}
                                             transition={{ type:'spring', damping:28, stiffness:300 }}
                                             className="absolute inset-x-0 bottom-0 z-40 flex flex-col glass-panel"
-                                            style={{ maxHeight:'72vh', borderRadius:'24px 24px 0 0', borderTop: '1px solid var(--glass-border)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)' }}>
+                                            style={{
+                                                maxHeight:'75vh',
+                                                borderRadius:'24px 24px 0 0',
+                                                borderTop: '1px solid var(--glass-border)',
+                                                backdropFilter: 'blur(20px)',
+                                                WebkitBackdropFilter: 'blur(20px)',
+                                                paddingBottom: 'env(safe-area-inset-bottom, 0px)'
+                                            }}>
                                             <div className="flex items-center justify-between px-4 py-3 shrink-0" style={{ borderBottom:'1px solid var(--glass-border)' }}>
                                                 <h2 className="syne font-bold flex items-center gap-2" style={{ color:'var(--text)' }}>
                                                     <Users size={15} style={{ color:'var(--accent)' }}/> Members

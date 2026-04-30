@@ -156,6 +156,10 @@ const VideoPlayer = () => {
     // from a further position, causing an infinite buffering loop on slow connections.
     const isBufferingRef   = useRef(false);
 
+    // FIX #3: auto-retry state for transient GDrive network errors
+    const retryCountRef = useRef(0);
+    const retryTimerRef = useRef(null);
+
     // FIX #5: Track whether the initial seek (jump to host's playedSeconds on join) has
     // completed. onCanPlay can fire before the seek finishes, causing play() to start
     // from position 0 then visibly jump to the correct position.
@@ -235,6 +239,9 @@ const VideoPlayer = () => {
         lastSyncedPosRef.current = 0;
         isBufferingRef.current   = false;
         initialSeekDoneRef.current = true; // FIX #5: reset; will be set false if stateTime > 2
+        // FIX #3: reset retry state on every new URL
+        retryCountRef.current = 0;
+        clearTimeout(retryTimerRef.current);
         prevSeekVersionReactPlayerRef.current = videoState.seekVersion ?? 0;
         prevSeekVersionGDriveRef.current      = videoState.seekVersion ?? 0;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -713,13 +720,20 @@ const VideoPlayer = () => {
                                         onPause={() => { if (!isPrivileged) return; debouncePause(() => nativeVideoRef.current?.currentTime || 0); }}
                                         onSeeking={() => { if (!isPrivileged) return; startSeekGuard(); }}
                                         onSeeked={() => {
-                                            // FIX #5: Initial seek completed — now safe to autoplay
+                                            // FIX #5: Initial seek completed — now safe to autoplay.
+                                            // FIX #1-code: onSeeked fires before the isPlayerReady state
+                                            // update from onCanPlay propagates in some browsers.
+                                            // Use functional setState to read the CURRENT value without
+                                            // a stale closure — return prev unchanged so state won't update.
                                             initialSeekDoneRef.current = true;
-                                            if (isPlayerReady && videoStateRef.current.isPlaying && nativeVideoRef.current?.paused) {
-                                                nativeVideoRef.current.play().catch((err) => {
-                                                    if (err.name === 'NotAllowedError') setAutoplayBlocked(true);
-                                                });
-                                            }
+                                            setIsPlayerReady(prev => {
+                                                if (prev && videoStateRef.current.isPlaying && nativeVideoRef.current?.paused) {
+                                                    nativeVideoRef.current.play().catch((err) => {
+                                                        if (err.name === 'NotAllowedError') setAutoplayBlocked(true);
+                                                    });
+                                                }
+                                                return prev; // no state change — only reading current value
+                                            });
                                             if (!isPrivileged) return;
                                             endSeekGuard(() => nativeVideoRef.current?.currentTime || 0);
                                         }}
@@ -735,7 +749,30 @@ const VideoPlayer = () => {
                                             }
                                         }}
                                         onError={() => {
-                                            setPlayerError('Could not load Google Drive video. Make sure the file is shared as "Anyone with the link" in Google Drive.');
+                                            clearTimeout(retryTimerRef.current);
+                                            const v = nativeVideoRef.current;
+                                            const code = v?.error?.code;
+                                            // MediaError codes: 2=NETWORK, 3=DECODE, 4=SRC_NOT_SUPPORTED
+                                            // FIX #3: Auto-retry up to 3× on transient network errors
+                                            if (code === 2 && retryCountRef.current < 3) {
+                                                retryCountRef.current++;
+                                                const attempt = retryCountRef.current;
+                                                setPlayerError(`Connection issue — retrying (${attempt}/3)…`);
+                                                retryTimerRef.current = setTimeout(() => {
+                                                    if (nativeVideoRef.current) {
+                                                        nativeVideoRef.current.load();
+                                                    }
+                                                }, 2000);
+                                                return;
+                                            }
+                                            // FIX #2: Format-specific error messages
+                                            if (code === 3) {
+                                                setPlayerError('This file format cannot be decoded by your browser. Use a .mp4 or .webm video for best compatibility.');
+                                            } else if (code === 4) {
+                                                setPlayerError('Could not load this file. Make sure: ① it is a .mp4 or .webm video ② it is shared as "Anyone with the link" in Google Drive.');
+                                            } else {
+                                                setPlayerError('Could not load Google Drive video. Make sure the file is shared as "Anyone with the link" in Google Drive.');
+                                            }
                                         }}
                                     />
                                     {/* FIX #8: Dual overlay — bottom covers desktop Chrome/Firefox seekbar,

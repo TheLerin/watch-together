@@ -469,3 +469,47 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   MOBILE & SAFE AREA
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Ensure the viewport covers notch areas correctly on iOS */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .safe-top {
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
+/* Prevent rubber-band overscroll on mobile app shell */
+html, body {
+  overscroll-behavior: none;
+}
+
+/* Mobile: prevent text selection during drag on panels */
+.cursor-row-resize {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Mobile: improve tap target sizes to 44×44px minimum */
+@media (max-width: 1023px) {
+  button {
+    min-height: 36px;
+    min-width: 36px;
+  }
+
+  /* Ensure chat input is comfortably tappable */
+  input[type="text"], input[type="url"], textarea {
+    font-size: 16px; /* prevents iOS auto-zoom on focus */
+  }
+}
+
+/* Touch-action on seekbar blocker so it doesn't intercept scroll gestures */
+[data-seekbar-blocker] {
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
