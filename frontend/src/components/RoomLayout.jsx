@@ -267,6 +267,7 @@ const RoomLayout = () => {
                                             transition={{ type:'spring', damping:28, stiffness:300 }}
                                             className="absolute inset-x-0 bottom-0 z-40 flex flex-col glass-panel"
                                             style={{
+                                                height:'65vh',
                                                 maxHeight:'75vh',
                                                 borderRadius:'24px 24px 0 0',
                                                 borderTop: '1px solid var(--glass-border)',
